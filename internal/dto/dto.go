@@ -2,25 +2,44 @@ package dto
 
 import "time"
 
-// RegisterRequest описывает регистрацию пользователя.
 type RegisterRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
 }
 
-// LoginRequest описывает логин пользователя.
 type LoginRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
 }
 
-// LoginResponse возвращает токен.
 type LoginResponse struct {
 	Token string `json:"token"`
 }
 
-// UpsertItemRequest описывает сохранение секрета.
+type LoginPasswordSecret struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
+type TextSecret struct {
+	Text string `json:"text"`
+}
+
+type BinarySecret struct {
+	Name string `json:"name"`
+	Data string `json:"data"`
+}
+
+type CardSecret struct {
+	Number   string `json:"number"`
+	Holder   string `json:"holder"`
+	Expiry   string `json:"expiry"`
+	CVV      string `json:"cvv"`
+	Provider string `json:"provider"`
+}
+
 type UpsertItemRequest struct {
+	ID         string `json:"id,omitempty"`
 	Type       string `json:"type"`
 	Title      string `json:"title"`
 	Meta       string `json:"meta"`
@@ -28,7 +47,6 @@ type UpsertItemRequest struct {
 	Nonce      string `json:"nonce"`
 }
 
-// ItemResponse описывает ответ с секретом.
 type ItemResponse struct {
 	ID         string    `json:"id"`
 	Type       string    `json:"type"`

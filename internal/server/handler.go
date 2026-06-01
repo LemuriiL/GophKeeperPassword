@@ -48,12 +48,21 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.auth.Register(r.Context(), login, req.Password); err != nil {
+	user, err := h.auth.Register(r.Context(), login, req.Password)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	token, err := h.tokens.Issue(user.ID, user.Login)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(dto.LoginResponse{Token: token})
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -83,9 +92,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(dto.LoginResponse{
-		Token: token,
-	})
+	_ = json.NewEncoder(w).Encode(dto.LoginResponse{Token: token})
 }
 
 func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +108,17 @@ func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	id := req.ID
+	if r.Method == http.MethodPut {
+		id = strings.TrimPrefix(r.URL.Path, "/api/items/")
+		if strings.TrimSpace(id) == "" {
+			http.Error(w, "empty id", http.StatusBadRequest)
+			return
+		}
+	}
+
 	item, err := h.items.Save(r.Context(), userIDFromContext(r.Context()), model.Item{
+		ID:         id,
 		Type:       req.Type,
 		Title:      req.Title,
 		Meta:       req.Meta,
@@ -113,18 +130,30 @@ func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := dto.ItemResponse{
-		ID:         item.ID,
-		Type:       item.Type,
-		Title:      item.Title,
-		Meta:       item.Meta,
-		Ciphertext: item.Ciphertext,
-		Nonce:      item.Nonce,
-		UpdatedAt:  item.UpdatedAt,
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(toItemResponse(item))
+}
+
+func (h *Handler) GetItem(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/items/")
+	if strings.TrimSpace(id) == "" {
+		http.Error(w, "empty id", http.StatusBadRequest)
+		return
+	}
+
+	item, err := h.items.Get(r.Context(), userIDFromContext(r.Context()), id)
+	if err != nil {
+		if IsNotFound(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(toItemResponse(item))
 }
 
 func (h *Handler) ListItems(w http.ResponseWriter, r *http.Request) {
@@ -136,15 +165,7 @@ func (h *Handler) ListItems(w http.ResponseWriter, r *http.Request) {
 
 	resp := make([]dto.ItemResponse, 0, len(items))
 	for _, item := range items {
-		resp = append(resp, dto.ItemResponse{
-			ID:         item.ID,
-			Type:       item.Type,
-			Title:      item.Title,
-			Meta:       item.Meta,
-			Ciphertext: item.Ciphertext,
-			Nonce:      item.Nonce,
-			UpdatedAt:  item.UpdatedAt,
-		})
+		resp = append(resp, toItemResponse(item))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -159,9 +180,26 @@ func (h *Handler) DeleteItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.items.Delete(r.Context(), userIDFromContext(r.Context()), id); err != nil {
+		if IsNotFound(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func toItemResponse(item model.Item) dto.ItemResponse {
+	return dto.ItemResponse{
+		ID:         item.ID,
+		Type:       item.Type,
+		Title:      item.Title,
+		Meta:       item.Meta,
+		Ciphertext: item.Ciphertext,
+		Nonce:      item.Nonce,
+		UpdatedAt:  item.UpdatedAt,
+	}
 }

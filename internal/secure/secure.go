@@ -11,12 +11,21 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// DeriveKey строит ключ из пароля и соли.
+const saltSize = 16
+
+func NewSalt() (string, error) {
+	salt := make([]byte, saltSize)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return "", err
+	}
+
+	return base64.StdEncoding.EncodeToString(salt), nil
+}
+
 func DeriveKey(password string, salt []byte) []byte {
 	return argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
 }
 
-// Encrypt шифрует данные AES-GCM.
 func Encrypt(key []byte, plaintext []byte) (string, string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -34,10 +43,10 @@ func Encrypt(key []byte, plaintext []byte) (string, string, error) {
 	}
 
 	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+
 	return base64.StdEncoding.EncodeToString(ciphertext), base64.StdEncoding.EncodeToString(nonce), nil
 }
 
-// Decrypt расшифровывает данные AES-GCM.
 func Decrypt(key []byte, ciphertextB64 string, nonceB64 string) ([]byte, error) {
 	ciphertext, err := base64.StdEncoding.DecodeString(ciphertextB64)
 	if err != nil {

@@ -7,7 +7,6 @@ import (
 	"github.com/LemuriiL/GophKeeperPassword/internal/secure"
 )
 
-// EncryptPayload шифрует строку мастер-ключом.
 func EncryptPayload(password string, salt string, plaintext string) (string, string, error) {
 	saltRaw, err := base64.StdEncoding.DecodeString(salt)
 	if err != nil {
@@ -18,7 +17,6 @@ func EncryptPayload(password string, salt string, plaintext string) (string, str
 	return secure.Encrypt(key, []byte(plaintext))
 }
 
-// DecryptPayload расшифровывает строку мастер-ключом.
 func DecryptPayload(password string, salt string, ciphertext string, nonce string) (string, error) {
 	saltRaw, err := base64.StdEncoding.DecodeString(salt)
 	if err != nil {
@@ -30,6 +28,7 @@ func DecryptPayload(password string, salt string, ciphertext string, nonce strin
 	if err != nil {
 		return "", err
 	}
+
 	if plain == nil {
 		return "", errors.New("empty plaintext")
 	}

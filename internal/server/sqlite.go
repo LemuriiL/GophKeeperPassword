@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
 )
@@ -15,7 +16,7 @@ type SQLite struct {
 }
 
 func NewSQLite(path string) (*SQLite, error) {
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
@@ -122,13 +123,34 @@ ON CONFLICT(id) DO UPDATE SET
 	return err
 }
 
+func (s *SQLite) GetItem(ctx context.Context, userID int64, id string) (model.Item, error) {
+	var item model.Item
+
+	row := s.db.QueryRowContext(
+		ctx,
+		`SELECT id, user_id, type, title, meta, ciphertext, nonce, updated_at FROM items WHERE user_id = ? AND id = ?`,
+		userID,
+		id,
+	)
+
+	err := row.Scan(
+		&item.ID,
+		&item.UserID,
+		&item.Type,
+		&item.Title,
+		&item.Meta,
+		&item.Ciphertext,
+		&item.Nonce,
+		&item.UpdatedAt,
+	)
+
+	return item, err
+}
+
 func (s *SQLite) ListItems(ctx context.Context, userID int64) ([]model.Item, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT id, user_id, type, title, meta, ciphertext, nonce, updated_at
-FROM items
-WHERE user_id = ?
-ORDER BY updated_at DESC`,
+		`SELECT id, user_id, type, title, meta, ciphertext, nonce, updated_at FROM items WHERE user_id = ? ORDER BY updated_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -161,15 +183,32 @@ ORDER BY updated_at DESC`,
 }
 
 func (s *SQLite) DeleteItem(ctx context.Context, userID int64, id string) error {
-	_, err := s.db.ExecContext(
+	res, err := s.db.ExecContext(
 		ctx,
 		`DELETE FROM items WHERE user_id = ? AND id = ?`,
 		userID,
 		id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
 
 func Now() time.Time {
 	return time.Now().UTC()
+}
+
+func IsNotFound(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
 }
