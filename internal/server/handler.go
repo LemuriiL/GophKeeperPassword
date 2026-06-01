@@ -124,6 +124,7 @@ func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 		Meta:       req.Meta,
 		Ciphertext: req.Ciphertext,
 		Nonce:      req.Nonce,
+		Salt:       req.Salt,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -200,6 +201,7 @@ func toItemResponse(item model.Item) dto.ItemResponse {
 		Meta:       item.Meta,
 		Ciphertext: item.Ciphertext,
 		Nonce:      item.Nonce,
+		Salt:       item.Salt,
 		UpdatedAt:  item.UpdatedAt,
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/dto"
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
+	"github.com/LemuriiL/GophKeeperPassword/internal/secure"
 	"github.com/LemuriiL/GophKeeperPassword/internal/server"
 )
 
@@ -25,7 +26,7 @@ func TestAPIClientFlow(t *testing.T) {
 
 	api := NewAPIClient(ts.URL)
 
-	token, salt, err := api.Register("user1", "pass1")
+	token, _, err := api.Register("user1", "pass1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,11 +35,13 @@ func TestAPIClientFlow(t *testing.T) {
 		t.Fatal("expected token")
 	}
 
-	if salt == "" {
-		t.Fatal("expected salt")
+	itemSalt, err := secure.NewSalt()
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	token, err = api.Login("user1", "pass1")
+	plaintext := `{"text":"hello"}`
+	ciphertext, nonce, err := EncryptPayload("local-master", itemSalt, plaintext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,16 +50,26 @@ func TestAPIClientFlow(t *testing.T) {
 		Type:       model.TypeText,
 		Title:      "note1",
 		Meta:       "meta1",
-		Ciphertext: "cipher",
-		Nonce:      "nonce",
+		Ciphertext: ciphertext,
+		Nonce:      nonce,
+		Salt:       itemSalt,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = api.GetItem(token, item.ID)
+	got, err := api.GetItem(token, item.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	decrypted, err := DecryptPayload("local-master", got.Salt, got.Ciphertext, got.Nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if decrypted != plaintext {
+		t.Fatalf("unexpected decrypted payload: %s", decrypted)
 	}
 
 	items, err := api.ListItems(token)
@@ -68,15 +81,45 @@ func TestAPIClientFlow(t *testing.T) {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
 
-	_, err = api.UpdateItem(token, item.ID, dto.UpsertItemRequest{
+	decrypted, err = DecryptPayload("local-master", items[0].Salt, items[0].Ciphertext, items[0].Nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if decrypted != plaintext {
+		t.Fatalf("unexpected decrypted payload from list: %s", decrypted)
+	}
+
+	newItemSalt, err := secure.NewSalt()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newPlaintext := `{"text":"updated"}`
+	newCiphertext, newNonce, err := EncryptPayload("local-master", newItemSalt, newPlaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := api.UpdateItem(token, item.ID, dto.UpsertItemRequest{
 		Type:       model.TypeText,
 		Title:      "note2",
 		Meta:       "meta2",
-		Ciphertext: "cipher2",
-		Nonce:      "nonce2",
+		Ciphertext: newCiphertext,
+		Nonce:      newNonce,
+		Salt:       newItemSalt,
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	decrypted, err = DecryptPayload("local-master", updated.Salt, updated.Ciphertext, updated.Nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if decrypted != newPlaintext {
+		t.Fatalf("unexpected updated decrypted payload: %s", decrypted)
 	}
 
 	if err = api.DeleteItem(token, item.ID); err != nil {

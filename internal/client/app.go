@@ -16,8 +16,8 @@ type App struct {
 	api *APIClient
 }
 
-func NewApp() (*App, error) {
-	cfg, err := LoadConfig("", "")
+func NewApp(configShort string, configLong string) (*App, error) {
+	cfg, err := LoadConfig(configShort, configLong)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (a *App) runRegister(args []string) error {
 		return err
 	}
 
-	token, salt, err := a.api.Register(*login, *password)
+	token, _, err := a.api.Register(*login, *password)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,6 @@ func (a *App) runRegister(args []string) error {
 	return SaveSession(a.cfg.SessionFile, Session{
 		Login: *login,
 		Token: token,
-		Salt:  salt,
 	})
 }
 
@@ -80,7 +79,6 @@ func (a *App) runLogin(args []string) error {
 
 	login := fs.String("login", "", "login")
 	password := fs.String("password", "", "password")
-	masterPassword := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -91,22 +89,9 @@ func (a *App) runLogin(args []string) error {
 		return err
 	}
 
-	session, err := LoadSession(a.cfg.SessionFile)
-	if err != nil || session.Salt == "" {
-		if strings.TrimSpace(*masterPassword) == "" {
-			return errors.New("master password is required on first login")
-		}
-
-		salt, saltErr := secure.NewSalt()
-		if saltErr != nil {
-			return saltErr
-		}
-
-		return SaveSession(a.cfg.SessionFile, Session{
-			Login: *login,
-			Token: token,
-			Salt:  salt,
-		})
+	session, loadErr := LoadSession(a.cfg.SessionFile)
+	if loadErr != nil {
+		session = Session{}
 	}
 
 	session.Login = *login
@@ -133,7 +118,12 @@ func (a *App) runAdd(args []string) error {
 		return err
 	}
 
-	ciphertext, nonce, err := EncryptPayload(*password, session.Salt, *value)
+	itemSalt, err := secure.NewSalt()
+	if err != nil {
+		return err
+	}
+
+	ciphertext, nonce, err := EncryptPayload(*password, itemSalt, *value)
 	if err != nil {
 		return err
 	}
@@ -144,6 +134,7 @@ func (a *App) runAdd(args []string) error {
 		Meta:       *meta,
 		Ciphertext: ciphertext,
 		Nonce:      nonce,
+		Salt:       itemSalt,
 	})
 	if err != nil {
 		return err
@@ -222,7 +213,12 @@ func (a *App) runUpdate(args []string) error {
 		return err
 	}
 
-	ciphertext, nonce, err := EncryptPayload(*password, session.Salt, *value)
+	itemSalt, err := secure.NewSalt()
+	if err != nil {
+		return err
+	}
+
+	ciphertext, nonce, err := EncryptPayload(*password, itemSalt, *value)
 	if err != nil {
 		return err
 	}
@@ -233,7 +229,9 @@ func (a *App) runUpdate(args []string) error {
 		Meta:       *meta,
 		Ciphertext: ciphertext,
 		Nonce:      nonce,
+		Salt:       itemSalt,
 	})
+
 	return err
 }
 
@@ -254,10 +252,15 @@ func (a *App) runDelete(args []string) error {
 	return a.api.DeleteItem(session.Token, *id)
 }
 
-func printItem(item dto.ItemResponse, salt string, password string) {
+func printItem(item dto.ItemResponse, sessionSalt string, password string) {
+	salt := item.Salt
+	if strings.TrimSpace(salt) == "" {
+		salt = sessionSalt
+	}
+
 	plain, err := DecryptPayload(password, salt, item.Ciphertext, item.Nonce)
 	if err != nil {
-		plain = "<decrypt error>"
+		plain = "<decrypt error: " + err.Error() + ">"
 	}
 
 	fmt.Println(strings.Repeat("-", 40))

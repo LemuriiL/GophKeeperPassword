@@ -45,6 +45,7 @@ type UpsertItemRequest struct {
 	Meta       string `json:"meta"`
 	Ciphertext string `json:"ciphertext"`
 	Nonce      string `json:"nonce"`
+	Salt       string `json:"salt"`
 }
 
 type ItemResponse struct {
@@ -54,5 +55,6 @@ type ItemResponse struct {
 	Meta       string    `json:"meta"`
 	Ciphertext string    `json:"ciphertext"`
 	Nonce      string    `json:"nonce"`
+	Salt       string    `json:"salt"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }

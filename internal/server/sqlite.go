@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -53,13 +54,23 @@ CREATE TABLE IF NOT EXISTS items (
 	meta TEXT NOT NULL,
 	ciphertext TEXT NOT NULL,
 	nonce TEXT NOT NULL,
+	salt TEXT NOT NULL DEFAULT '',
 	updated_at TIMESTAMP NOT NULL,
 	FOREIGN KEY(user_id) REFERENCES users(id)
 );
 `
 
 	_, err := s.db.ExecContext(ctx, query)
-	return err
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.ExecContext(ctx, `ALTER TABLE items ADD COLUMN salt TEXT NOT NULL DEFAULT ''`)
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+		return err
+	}
+
+	return nil
 }
 
 func (s *SQLite) CreateUser(ctx context.Context, user model.User) (int64, error) {
@@ -101,14 +112,15 @@ func (s *SQLite) GetUserByLogin(ctx context.Context, login string) (model.User, 
 func (s *SQLite) UpsertItem(ctx context.Context, item model.Item) error {
 	_, err := s.db.ExecContext(
 		ctx,
-		`INSERT INTO items(id, user_id, type, title, meta, ciphertext, nonce, updated_at)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO items(id, user_id, type, title, meta, ciphertext, nonce, salt, updated_at)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	type = excluded.type,
 	title = excluded.title,
 	meta = excluded.meta,
 	ciphertext = excluded.ciphertext,
 	nonce = excluded.nonce,
+	salt = excluded.salt,
 	updated_at = excluded.updated_at`,
 		item.ID,
 		item.UserID,
@@ -117,6 +129,7 @@ ON CONFLICT(id) DO UPDATE SET
 		item.Meta,
 		item.Ciphertext,
 		item.Nonce,
+		item.Salt,
 		item.UpdatedAt,
 	)
 
@@ -128,7 +141,7 @@ func (s *SQLite) GetItem(ctx context.Context, userID int64, id string) (model.It
 
 	row := s.db.QueryRowContext(
 		ctx,
-		`SELECT id, user_id, type, title, meta, ciphertext, nonce, updated_at FROM items WHERE user_id = ? AND id = ?`,
+		`SELECT id, user_id, type, title, meta, ciphertext, nonce, salt, updated_at FROM items WHERE user_id = ? AND id = ?`,
 		userID,
 		id,
 	)
@@ -141,6 +154,7 @@ func (s *SQLite) GetItem(ctx context.Context, userID int64, id string) (model.It
 		&item.Meta,
 		&item.Ciphertext,
 		&item.Nonce,
+		&item.Salt,
 		&item.UpdatedAt,
 	)
 
@@ -150,7 +164,7 @@ func (s *SQLite) GetItem(ctx context.Context, userID int64, id string) (model.It
 func (s *SQLite) ListItems(ctx context.Context, userID int64) ([]model.Item, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT id, user_id, type, title, meta, ciphertext, nonce, updated_at FROM items WHERE user_id = ? ORDER BY updated_at DESC`,
+		`SELECT id, user_id, type, title, meta, ciphertext, nonce, salt, updated_at FROM items WHERE user_id = ? ORDER BY updated_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -171,6 +185,7 @@ func (s *SQLite) ListItems(ctx context.Context, userID int64) ([]model.Item, err
 			&item.Meta,
 			&item.Ciphertext,
 			&item.Nonce,
+			&item.Salt,
 			&item.UpdatedAt,
 		); err != nil {
 			return nil, err

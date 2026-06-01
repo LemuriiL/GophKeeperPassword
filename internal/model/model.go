@@ -25,5 +25,6 @@ type Item struct {
 	Meta       string
 	Ciphertext string
 	Nonce      string
+	Salt       string
 	UpdatedAt  time.Time
 }

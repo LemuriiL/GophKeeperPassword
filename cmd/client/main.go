@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -15,13 +16,22 @@ var buildCommit = "N/A"
 func main() {
 	buildinfo.Print(buildVersion, buildDate, buildCommit)
 
-	app, err := client.NewApp()
+	fs := flag.NewFlagSet("client", flag.ContinueOnError)
+	configShort := fs.String("c", "", "path to config")
+	configLong := fs.String("config", "", "path to config")
+
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	app, err := client.NewApp(*configShort, *configLong)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
-	if err := app.Run(os.Args[1:]); err != nil {
+	if err := app.Run(fs.Args()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
