@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/dto"
-	"github.com/LemuriiL/GophKeeperPassword/internal/secure"
 )
 
 type APIClient struct {
@@ -49,40 +48,35 @@ func (c *APIClient) Register(login string, password string) (string, string, err
 		return "", "", err
 	}
 
-	salt, err := secure.NewSalt()
-	if err != nil {
-		return "", "", err
-	}
-
-	return out.Token, salt, nil
+	return out.Token, out.Salt, nil
 }
 
-func (c *APIClient) Login(login string, password string) (string, error) {
+func (c *APIClient) Login(login string, password string) (string, string, error) {
 	body, err := json.Marshal(dto.LoginRequest{
 		Login:    login,
 		Password: password,
 	})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	resp, err := c.client.Post(c.baseURL+"/api/login", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("login failed: %s", string(b))
+		return "", "", fmt.Errorf("login failed: %s", string(b))
 	}
 
 	var out dto.LoginResponse
 	if err = json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return out.Token, nil
+	return out.Token, out.Salt, nil
 }
 
 func (c *APIClient) SaveItem(token string, req dto.UpsertItemRequest) (dto.ItemResponse, error) {

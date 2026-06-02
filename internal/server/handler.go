@@ -25,7 +25,6 @@ func NewHandler(auth *AuthService, items *ItemService, tokens *TokenManager) *Ha
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req dto.RegisterRequest
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -62,12 +61,15 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(dto.LoginResponse{Token: token})
+
+	_ = json.NewEncoder(w).Encode(dto.LoginResponse{
+		Token: token,
+		Salt:  user.Salt,
+	})
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req dto.LoginRequest
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -92,12 +94,15 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(dto.LoginResponse{Token: token})
+
+	_ = json.NewEncoder(w).Encode(dto.LoginResponse{
+		Token: token,
+		Salt:  user.Salt,
+	})
 }
 
 func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 	var req dto.UpsertItemRequest
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -105,6 +110,11 @@ func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 
 	if strings.TrimSpace(req.Type) == "" || strings.TrimSpace(req.Title) == "" {
 		http.Error(w, "empty type or title", http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(req.Ciphertext) == "" || strings.TrimSpace(req.Nonce) == "" {
+		http.Error(w, "empty ciphertext or nonce", http.StatusBadRequest)
 		return
 	}
 

@@ -14,28 +14,7 @@ type LoginRequest struct {
 
 type LoginResponse struct {
 	Token string `json:"token"`
-}
-
-type LoginPasswordSecret struct {
-	Login    string `json:"login"`
-	Password string `json:"password"`
-}
-
-type TextSecret struct {
-	Text string `json:"text"`
-}
-
-type BinarySecret struct {
-	Name string `json:"name"`
-	Data string `json:"data"`
-}
-
-type CardSecret struct {
-	Number   string `json:"number"`
-	Holder   string `json:"holder"`
-	Expiry   string `json:"expiry"`
-	CVV      string `json:"cvv"`
-	Provider string `json:"provider"`
+	Salt  string `json:"salt"`
 }
 
 type UpsertItemRequest struct {

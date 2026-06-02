@@ -8,7 +8,6 @@ import (
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/dto"
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
-	"github.com/LemuriiL/GophKeeperPassword/internal/secure"
 )
 
 type App struct {
@@ -63,14 +62,19 @@ func (a *App) runRegister(args []string) error {
 		return err
 	}
 
-	token, _, err := a.api.Register(*login, *password)
+	token, salt, err := a.api.Register(*login, *password)
 	if err != nil {
 		return err
+	}
+
+	if strings.TrimSpace(salt) == "" {
+		return errors.New("server returned empty salt")
 	}
 
 	return SaveSession(a.cfg.SessionFile, Session{
 		Login: *login,
 		Token: token,
+		Salt:  salt,
 	})
 }
 
@@ -84,20 +88,20 @@ func (a *App) runLogin(args []string) error {
 		return err
 	}
 
-	token, err := a.api.Login(*login, *password)
+	token, salt, err := a.api.Login(*login, *password)
 	if err != nil {
 		return err
 	}
 
-	session, loadErr := LoadSession(a.cfg.SessionFile)
-	if loadErr != nil {
-		session = Session{}
+	if strings.TrimSpace(salt) == "" {
+		return errors.New("server returned empty salt")
 	}
 
-	session.Login = *login
-	session.Token = token
-
-	return SaveSession(a.cfg.SessionFile, session)
+	return SaveSession(a.cfg.SessionFile, Session{
+		Login: *login,
+		Token: token,
+		Salt:  salt,
+	})
 }
 
 func (a *App) runAdd(args []string) error {
@@ -118,14 +122,22 @@ func (a *App) runAdd(args []string) error {
 		return err
 	}
 
-	itemSalt, err := secure.NewSalt()
+	if strings.TrimSpace(session.Salt) == "" {
+		return errors.New("empty session salt, run login again")
+	}
+
+	ciphertext, nonce, err := EncryptPayload(*password, session.Salt, *value)
 	if err != nil {
 		return err
 	}
 
-	ciphertext, nonce, err := EncryptPayload(*password, itemSalt, *value)
+	check, err := DecryptPayload(*password, session.Salt, ciphertext, nonce)
 	if err != nil {
-		return err
+		return fmt.Errorf("local encryption self-check failed: %w", err)
+	}
+
+	if check != *value {
+		return errors.New("local encryption self-check failed: plaintext mismatch")
 	}
 
 	item, err := a.api.SaveItem(session.Token, dto.UpsertItemRequest{
@@ -134,7 +146,7 @@ func (a *App) runAdd(args []string) error {
 		Meta:       *meta,
 		Ciphertext: ciphertext,
 		Nonce:      nonce,
-		Salt:       itemSalt,
+		Salt:       session.Salt,
 	})
 	if err != nil {
 		return err
@@ -159,6 +171,10 @@ func (a *App) runGet(args []string) error {
 		return err
 	}
 
+	if strings.TrimSpace(session.Salt) == "" {
+		return errors.New("empty session salt, run login again")
+	}
+
 	item, err := a.api.GetItem(session.Token, *id)
 	if err != nil {
 		return err
@@ -180,6 +196,10 @@ func (a *App) runList(args []string) error {
 	session, err := LoadSession(a.cfg.SessionFile)
 	if err != nil {
 		return err
+	}
+
+	if strings.TrimSpace(session.Salt) == "" {
+		return errors.New("empty session salt, run login again")
 	}
 
 	items, err := a.api.ListItems(session.Token)
@@ -213,14 +233,22 @@ func (a *App) runUpdate(args []string) error {
 		return err
 	}
 
-	itemSalt, err := secure.NewSalt()
+	if strings.TrimSpace(session.Salt) == "" {
+		return errors.New("empty session salt, run login again")
+	}
+
+	ciphertext, nonce, err := EncryptPayload(*password, session.Salt, *value)
 	if err != nil {
 		return err
 	}
 
-	ciphertext, nonce, err := EncryptPayload(*password, itemSalt, *value)
+	check, err := DecryptPayload(*password, session.Salt, ciphertext, nonce)
 	if err != nil {
-		return err
+		return fmt.Errorf("local encryption self-check failed: %w", err)
+	}
+
+	if check != *value {
+		return errors.New("local encryption self-check failed: plaintext mismatch")
 	}
 
 	_, err = a.api.UpdateItem(session.Token, *id, dto.UpsertItemRequest{
@@ -229,7 +257,7 @@ func (a *App) runUpdate(args []string) error {
 		Meta:       *meta,
 		Ciphertext: ciphertext,
 		Nonce:      nonce,
-		Salt:       itemSalt,
+		Salt:       session.Salt,
 	})
 
 	return err
@@ -253,14 +281,9 @@ func (a *App) runDelete(args []string) error {
 }
 
 func printItem(item dto.ItemResponse, sessionSalt string, password string) {
-	salt := item.Salt
-	if strings.TrimSpace(salt) == "" {
-		salt = sessionSalt
-	}
-
-	plain, err := DecryptPayload(password, salt, item.Ciphertext, item.Nonce)
+	plain, err := DecryptPayload(password, sessionSalt, item.Ciphertext, item.Nonce)
 	if err != nil {
-		plain = "<decrypt error: " + err.Error() + ">"
+		plain = fmt.Sprintf("<decrypt error: %v>", err)
 	}
 
 	fmt.Println(strings.Repeat("-", 40))
