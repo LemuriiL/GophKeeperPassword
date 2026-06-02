@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// App хранит зависимости сервера
 type App struct {
 	cfg     Config
 	store   *SQLite
@@ -14,6 +15,7 @@ type App struct {
 	tokens  *TokenManager
 }
 
+// NewApp создает серверное приложение
 func NewApp(cfg Config) (*App, error) {
 	store, err := NewSQLite(cfg.DBPath)
 	if err != nil {
@@ -60,10 +62,12 @@ func (a *App) routes() http.Handler {
 	return mux
 }
 
+// RoutesForTests возвращает роутер для тестов
 func (a *App) RoutesForTests() http.Handler {
 	return a.routes()
 }
 
+// Run запускает HTTP сервер
 func (a *App) Run() error {
 	err := a.http.ListenAndServe()
 	if err == http.ErrServerClosed {
@@ -73,10 +77,12 @@ func (a *App) Run() error {
 	return err
 }
 
+// Shutdown останавливает сервер
 func (a *App) Shutdown(ctx context.Context) error {
 	return a.http.Shutdown(ctx)
 }
 
+// Close закрывает хранилище
 func (a *App) Close() error {
 	return a.store.Close()
 }

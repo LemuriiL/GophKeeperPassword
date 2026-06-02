@@ -9,13 +9,16 @@ import (
 	"strings"
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/dto"
+	"github.com/LemuriiL/GophKeeperPassword/internal/secure"
 )
 
+// APIClient ходит на сервер
 type APIClient struct {
 	baseURL string
 	client  *http.Client
 }
 
+// NewAPIClient создает HTTP клиент для сервера
 func NewAPIClient(baseURL string) *APIClient {
 	return &APIClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -23,6 +26,7 @@ func NewAPIClient(baseURL string) *APIClient {
 	}
 }
 
+// Register регистрирует пользователя и возвращает токен и локальную соль
 func (c *APIClient) Register(login string, password string) (string, string, error) {
 	body, err := json.Marshal(dto.RegisterRequest{
 		Login:    login,
@@ -48,37 +52,44 @@ func (c *APIClient) Register(login string, password string) (string, string, err
 		return "", "", err
 	}
 
-	return out.Token, out.Salt, nil
+	salt, err := secure.NewSalt()
+	if err != nil {
+		return "", "", err
+	}
+
+	return out.Token, salt, nil
 }
 
-func (c *APIClient) Login(login string, password string) (string, string, error) {
+// Login логинит пользователя и возвращает токен
+func (c *APIClient) Login(login string, password string) (string, error) {
 	body, err := json.Marshal(dto.LoginRequest{
 		Login:    login,
 		Password: password,
 	})
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 
 	resp, err := c.client.Post(c.baseURL+"/api/login", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return "", "", fmt.Errorf("login failed: %s", string(b))
+		return "", fmt.Errorf("login failed: %s", string(b))
 	}
 
 	var out dto.LoginResponse
 	if err = json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", "", err
+		return "", err
 	}
 
-	return out.Token, out.Salt, nil
+	return out.Token, nil
 }
 
+// SaveItem создает новый секрет
 func (c *APIClient) SaveItem(token string, req dto.UpsertItemRequest) (dto.ItemResponse, error) {
 	var out dto.ItemResponse
 
@@ -110,6 +121,7 @@ func (c *APIClient) SaveItem(token string, req dto.UpsertItemRequest) (dto.ItemR
 	return out, err
 }
 
+// UpdateItem обновляет секрет по id
 func (c *APIClient) UpdateItem(token string, id string, req dto.UpsertItemRequest) (dto.ItemResponse, error) {
 	var out dto.ItemResponse
 
@@ -143,6 +155,7 @@ func (c *APIClient) UpdateItem(token string, id string, req dto.UpsertItemReques
 	return out, err
 }
 
+// GetItem получает один секрет по id
 func (c *APIClient) GetItem(token string, id string) (dto.ItemResponse, error) {
 	var out dto.ItemResponse
 
@@ -168,6 +181,7 @@ func (c *APIClient) GetItem(token string, id string) (dto.ItemResponse, error) {
 	return out, err
 }
 
+// ListItems получает список секретов
 func (c *APIClient) ListItems(token string) ([]dto.ItemResponse, error) {
 	httpReq, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/items", nil)
 	if err != nil {
@@ -195,6 +209,7 @@ func (c *APIClient) ListItems(token string) ([]dto.ItemResponse, error) {
 	return out, nil
 }
 
+// DeleteItem удаляет секрет по id
 func (c *APIClient) DeleteItem(token string, id string) error {
 	httpReq, err := http.NewRequest(http.MethodDelete, c.baseURL+"/api/items/"+id, nil)
 	if err != nil {

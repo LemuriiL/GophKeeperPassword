@@ -8,16 +8,17 @@ import (
 	"github.com/LemuriiL/GophKeeperPassword/internal/cfg"
 )
 
-// Config хранит настройки сервера.
+// Config хранит настройки сервера
 type Config struct {
 	Address   string `json:"address"`
 	DBPath    string `json:"db_path"`
 	JWTSecret string `json:"jwt_secret"`
 }
 
-// LoadConfig загружает конфиг сервера.
+// LoadConfig загружает конфиг сервера
 func LoadConfig(shortPath string, longPath string) (Config, error) {
 	path := pickString("CONFIG", shortPath, longPath)
+
 	out := Config{
 		Address:   ":8080",
 		DBPath:    "gophkeeper.db",
@@ -29,12 +30,15 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 		if err != nil {
 			return Config{}, err
 		}
+
 		if fileCfg.Address != "" {
 			out.Address = fileCfg.Address
 		}
+
 		if fileCfg.DBPath != "" {
 			out.DBPath = fileCfg.DBPath
 		}
+
 		if fileCfg.JWTSecret != "" {
 			out.JWTSecret = fileCfg.JWTSecret
 		}
@@ -43,9 +47,11 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 	if v := os.Getenv("ADDRESS"); v != "" {
 		out.Address = v
 	}
+
 	if v := os.Getenv("DB_PATH"); v != "" {
 		out.DBPath = v
 	}
+
 	if v := os.Getenv("JWT_SECRET"); v != "" {
 		out.JWTSecret = v
 	}

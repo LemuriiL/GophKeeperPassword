@@ -40,12 +40,12 @@ func newTestHTTP(t *testing.T) (*Handler, *TokenManager, http.Handler, func()) {
 	return h, tokens, mux, cleanup
 }
 
-func registerAndLogin(t *testing.T, router http.Handler) string {
+func registerAndLogin(t *testing.T, router http.Handler, login string, password string) string {
 	t.Helper()
 
 	registerBody, _ := json.Marshal(dto.RegisterRequest{
-		Login:    "user1",
-		Password: "pass1",
+		Login:    login,
+		Password: password,
 	})
 
 	regReq := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader(registerBody))
@@ -68,7 +68,7 @@ func TestRegisterAndLogin(t *testing.T) {
 	_, _, router, cleanup := newTestHTTP(t)
 	defer cleanup()
 
-	token := registerAndLogin(t, router)
+	token := registerAndLogin(t, router, "user1", "pass1")
 	if token == "" {
 		t.Fatal("expected token")
 	}
@@ -87,11 +87,82 @@ func TestRegisterAndLogin(t *testing.T) {
 	}
 }
 
+func TestRegisterBadJSON(t *testing.T) {
+	h, _, _, cleanup := newTestHTTP(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader([]byte("{bad")))
+	rec := httptest.NewRecorder()
+	h.Register(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected code: %d", rec.Code)
+	}
+}
+
+func TestRegisterEmptyLogin(t *testing.T) {
+	h, _, _, cleanup := newTestHTTP(t)
+	defer cleanup()
+
+	body, _ := json.Marshal(dto.RegisterRequest{
+		Login:    "",
+		Password: "pass1",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Register(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected code: %d", rec.Code)
+	}
+}
+
+func TestRegisterConflict(t *testing.T) {
+	_, _, router, cleanup := newTestHTTP(t)
+	defer cleanup()
+
+	_ = registerAndLogin(t, router, "user1", "pass1")
+
+	body, _ := json.Marshal(dto.RegisterRequest{
+		Login:    "user1",
+		Password: "pass1",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unexpected code: %d", rec.Code)
+	}
+}
+
+func TestLoginBadPassword(t *testing.T) {
+	_, _, router, cleanup := newTestHTTP(t)
+	defer cleanup()
+
+	_ = registerAndLogin(t, router, "user1", "pass1")
+
+	body, _ := json.Marshal(dto.LoginRequest{
+		Login:    "user1",
+		Password: "wrong",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unexpected code: %d", rec.Code)
+	}
+}
+
 func TestItemCRUD(t *testing.T) {
 	_, _, router, cleanup := newTestHTTP(t)
 	defer cleanup()
 
-	token := registerAndLogin(t, router)
+	token := registerAndLogin(t, router, "user1", "pass1")
 
 	createBody, _ := json.Marshal(dto.UpsertItemRequest{
 		Type:       model.TypeText,
@@ -99,6 +170,7 @@ func TestItemCRUD(t *testing.T) {
 		Meta:       "telegram",
 		Ciphertext: "cipher-1",
 		Nonce:      "nonce-1",
+		Salt:       "salt-1",
 	})
 
 	createReq := httptest.NewRequest(http.MethodPost, "/api/items", bytes.NewReader(createBody))
@@ -161,6 +233,7 @@ func TestItemCRUD(t *testing.T) {
 		Meta:       "telegram-updated",
 		Ciphertext: "cipher-2",
 		Nonce:      "nonce-2",
+		Salt:       "salt-2",
 	})
 
 	updateReq := httptest.NewRequest(http.MethodPut, "/api/items/"+created.ID, bytes.NewReader(updateBody))
@@ -182,7 +255,7 @@ func TestItemCRUD(t *testing.T) {
 	}
 }
 
-func TestAuthRequired(t *testing.T) {
+func TestItemUnauthorized(t *testing.T) {
 	_, _, router, cleanup := newTestHTTP(t)
 	defer cleanup()
 
@@ -191,6 +264,79 @@ func TestAuthRequired(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unexpected code: %d", rec.Code)
+	}
+}
+
+func TestGetItemNotFound(t *testing.T) {
+	_, _, router, cleanup := newTestHTTP(t)
+	defer cleanup()
+
+	token := registerAndLogin(t, router, "user1", "pass1")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/items/missing", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected code: %d", rec.Code)
+	}
+}
+
+func TestDeleteItemNotFound(t *testing.T) {
+	_, _, router, cleanup := newTestHTTP(t)
+	defer cleanup()
+
+	token := registerAndLogin(t, router, "user1", "pass1")
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/items/missing", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected code: %d", rec.Code)
+	}
+}
+
+func TestUpsertItemBadBody(t *testing.T) {
+	_, _, router, cleanup := newTestHTTP(t)
+	defer cleanup()
+
+	token := registerAndLogin(t, router, "user1", "pass1")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/items", bytes.NewReader([]byte("{bad")))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected code: %d", rec.Code)
+	}
+}
+
+func TestUpsertItemEmptyType(t *testing.T) {
+	_, _, router, cleanup := newTestHTTP(t)
+	defer cleanup()
+
+	token := registerAndLogin(t, router, "user1", "pass1")
+
+	body, _ := json.Marshal(dto.UpsertItemRequest{
+		Type:       "",
+		Title:      "note1",
+		Meta:       "meta",
+		Ciphertext: "cipher",
+		Nonce:      "nonce",
+		Salt:       "salt",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/items", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unexpected code: %d", rec.Code)
 	}
 }

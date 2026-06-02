@@ -11,17 +11,17 @@ import (
 	"github.com/LemuriiL/GophKeeperPassword/internal/secure"
 )
 
-// AuthService отвечает за пользователей.
+// AuthService отвечает за регистрацию и логин
 type AuthService struct {
 	store *SQLite
 }
 
-// NewAuthService создаёт сервис авторизации.
+// NewAuthService создает сервис авторизации
 func NewAuthService(store *SQLite) *AuthService {
 	return &AuthService{store: store}
 }
 
-// Register создаёт пользователя.
+// Register создает нового пользователя
 func (s *AuthService) Register(ctx context.Context, login string, password string) (model.User, error) {
 	saltRaw := make([]byte, 16)
 	if _, err := rand.Read(saltRaw); err != nil {
@@ -29,6 +29,7 @@ func (s *AuthService) Register(ctx context.Context, login string, password strin
 	}
 
 	hash := secure.DeriveKey(password, saltRaw)
+
 	user := model.User{
 		Login:        login,
 		PasswordHash: base64.StdEncoding.EncodeToString(hash),
@@ -45,7 +46,7 @@ func (s *AuthService) Register(ctx context.Context, login string, password strin
 	return user, nil
 }
 
-// Login проверяет логин и пароль.
+// Login проверяет логин и пароль
 func (s *AuthService) Login(ctx context.Context, login string, password string) (model.User, error) {
 	user, err := s.store.GetUserByLogin(ctx, login)
 	if err != nil {
@@ -65,14 +66,16 @@ func (s *AuthService) Login(ctx context.Context, login string, password string) 
 	return user, nil
 }
 
-// IsUniqueLogin проверяет, свободен ли логин.
+// IsUniqueLogin проверяет свободен ли логин
 func (s *AuthService) IsUniqueLogin(ctx context.Context, login string) (bool, error) {
 	_, err := s.store.GetUserByLogin(ctx, login)
 	if err == nil {
 		return false, nil
 	}
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return true, nil
 	}
+
 	return false, err
 }

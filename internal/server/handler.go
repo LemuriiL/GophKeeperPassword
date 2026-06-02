@@ -9,12 +9,14 @@ import (
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
 )
 
+// Handler хранит HTTP хендлеры сервера
 type Handler struct {
 	auth   *AuthService
 	items  *ItemService
 	tokens *TokenManager
 }
 
+// NewHandler создает набор хендлеров
 func NewHandler(auth *AuthService, items *ItemService, tokens *TokenManager) *Handler {
 	return &Handler{
 		auth:   auth,
@@ -23,8 +25,10 @@ func NewHandler(auth *AuthService, items *ItemService, tokens *TokenManager) *Ha
 	}
 }
 
+// Register регистрирует пользователя
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req dto.RegisterRequest
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -61,15 +65,13 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-
-	_ = json.NewEncoder(w).Encode(dto.LoginResponse{
-		Token: token,
-		Salt:  user.Salt,
-	})
+	_ = json.NewEncoder(w).Encode(dto.LoginResponse{Token: token})
 }
 
+// Login логинит пользователя
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req dto.LoginRequest
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -94,15 +96,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-
-	_ = json.NewEncoder(w).Encode(dto.LoginResponse{
-		Token: token,
-		Salt:  user.Salt,
-	})
+	_ = json.NewEncoder(w).Encode(dto.LoginResponse{Token: token})
 }
 
+// UpsertItem создает или обновляет секрет
 func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 	var req dto.UpsertItemRequest
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -110,11 +110,6 @@ func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 
 	if strings.TrimSpace(req.Type) == "" || strings.TrimSpace(req.Title) == "" {
 		http.Error(w, "empty type or title", http.StatusBadRequest)
-		return
-	}
-
-	if strings.TrimSpace(req.Ciphertext) == "" || strings.TrimSpace(req.Nonce) == "" {
-		http.Error(w, "empty ciphertext or nonce", http.StatusBadRequest)
 		return
 	}
 
@@ -145,6 +140,7 @@ func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(toItemResponse(item))
 }
 
+// GetItem возвращает один секрет
 func (h *Handler) GetItem(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/items/")
 	if strings.TrimSpace(id) == "" {
@@ -167,6 +163,7 @@ func (h *Handler) GetItem(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(toItemResponse(item))
 }
 
+// ListItems возвращает список секретов
 func (h *Handler) ListItems(w http.ResponseWriter, r *http.Request) {
 	items, err := h.items.List(r.Context(), userIDFromContext(r.Context()))
 	if err != nil {
@@ -183,6 +180,7 @@ func (h *Handler) ListItems(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// DeleteItem удаляет секрет
 func (h *Handler) DeleteItem(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/items/")
 	if strings.TrimSpace(id) == "" {

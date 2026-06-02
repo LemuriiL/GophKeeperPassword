@@ -9,13 +9,13 @@ import (
 	"github.com/LemuriiL/GophKeeperPassword/internal/cfg"
 )
 
-// Config хранит настройки клиента.
+// Config хранит настройки клиента
 type Config struct {
 	ServerURL   string `json:"server_url"`
 	SessionFile string `json:"session_file"`
 }
 
-// LoadConfig загружает конфиг клиента.
+// LoadConfig загружает конфиг клиента
 func LoadConfig(shortPath string, longPath string) (Config, error) {
 	path := os.Getenv("CONFIG")
 	if path == "" {
@@ -28,6 +28,7 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 
 	home, _ := os.UserHomeDir()
 	defaultSession := filepath.Join(home, ".gophkeeper_session.json")
+
 	out := Config{
 		ServerURL:   "http://localhost:8080",
 		SessionFile: defaultSession,
@@ -38,9 +39,11 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 		if err != nil {
 			return Config{}, err
 		}
+
 		if fileCfg.ServerURL != "" {
 			out.ServerURL = fileCfg.ServerURL
 		}
+
 		if fileCfg.SessionFile != "" {
 			out.SessionFile = fileCfg.SessionFile
 		}
@@ -49,6 +52,7 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 	if v := os.Getenv("SERVER_URL"); v != "" {
 		out.ServerURL = v
 	}
+
 	if v := os.Getenv("SESSION_FILE"); v != "" {
 		out.SessionFile = v
 	}

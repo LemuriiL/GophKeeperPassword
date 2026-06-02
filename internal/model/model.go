@@ -2,13 +2,19 @@ package model
 
 import "time"
 
-const (
-	TypeLoginPassword = "login_password"
-	TypeText          = "text"
-	TypeBinary        = "binary"
-	TypeCard          = "card"
-)
+// TypeLoginPassword это тип секрета логин пароль
+const TypeLoginPassword = "login_password"
 
+// TypeText это тип текстового секрета
+const TypeText = "text"
+
+// TypeBinary это тип бинарного секрета
+const TypeBinary = "binary"
+
+// TypeCard это тип данных карты
+const TypeCard = "card"
+
+// User описывает пользователя
 type User struct {
 	ID           int64
 	Login        string
@@ -17,6 +23,7 @@ type User struct {
 	CreatedAt    time.Time
 }
 
+// Item описывает секрет пользователя
 type Item struct {
 	ID         string
 	UserID     int64

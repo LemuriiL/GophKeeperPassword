@@ -6,17 +6,17 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// TokenManager управляет JWT.
+// TokenManager работает с JWT токенами
 type TokenManager struct {
 	secret []byte
 }
 
-// NewTokenManager создаёт менеджер токенов.
+// NewTokenManager создает менеджер токенов
 func NewTokenManager(secret string) *TokenManager {
 	return &TokenManager{secret: []byte(secret)}
 }
 
-// Issue выпускает токен пользователя.
+// Issue выпускает токен для пользователя
 func (m *TokenManager) Issue(userID int64, login string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub":   userID,
@@ -28,7 +28,7 @@ func (m *TokenManager) Issue(userID int64, login string) (string, error) {
 	return token.SignedString(m.secret)
 }
 
-// Parse извлекает данные пользователя из токена.
+// Parse разбирает токен и возвращает данные пользователя
 func (m *TokenManager) Parse(raw string) (int64, string, error) {
 	token, err := jwt.Parse(raw, func(token *jwt.Token) (any, error) {
 		return m.secret, nil
@@ -44,5 +44,6 @@ func (m *TokenManager) Parse(raw string) (int64, string, error) {
 
 	idf, _ := claims["sub"].(float64)
 	login, _ := claims["login"].(string)
+
 	return int64(idf), login, nil
 }
