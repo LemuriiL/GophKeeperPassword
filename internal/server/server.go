@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -48,6 +49,7 @@ func NewApp(cfg Config) (*App, error) {
 	return app, nil
 }
 
+// routes собирает HTTP маршруты сервера
 func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -67,9 +69,16 @@ func (a *App) RoutesForTests() http.Handler {
 	return a.routes()
 }
 
-// Run запускает HTTP сервер
+// Run запускает сервер
 func (a *App) Run() error {
-	err := a.http.ListenAndServe()
+	var err error
+
+	if strings.TrimSpace(a.cfg.TLSCertFile) != "" && strings.TrimSpace(a.cfg.TLSKeyFile) != "" {
+		err = a.http.ListenAndServeTLS(a.cfg.TLSCertFile, a.cfg.TLSKeyFile)
+	} else {
+		err = a.http.ListenAndServe()
+	}
+
 	if err == http.ErrServerClosed {
 		return nil
 	}

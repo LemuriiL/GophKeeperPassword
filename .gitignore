@@ -1,6 +1,13 @@
-.idea/
 .gophkeeper_session.json
-gophkeeper.db
-errors.txt
+*.db
+*.db-shm
+*.db-wal
+*.exe
+*.test
 configs/server.json
-configs/client.local.json
+configs/client.json
+.idea
+.vscode
+tmp
+dist
+bin

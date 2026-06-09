@@ -11,8 +11,9 @@ import (
 
 // Config хранит настройки клиента
 type Config struct {
-	ServerURL   string `json:"server_url"`
-	SessionFile string `json:"session_file"`
+	ServerURL          string `json:"server_url"`
+	SessionFile        string `json:"session_file"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 }
 
 // LoadConfig загружает конфиг клиента
@@ -30,7 +31,7 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 	defaultSession := filepath.Join(home, ".gophkeeper_session.json")
 
 	out := Config{
-		ServerURL:   "http://localhost:8080",
+		ServerURL:   "https://localhost:8080",
 		SessionFile: defaultSession,
 	}
 
@@ -47,6 +48,8 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 		if fileCfg.SessionFile != "" {
 			out.SessionFile = fileCfg.SessionFile
 		}
+
+		out.InsecureSkipVerify = fileCfg.InsecureSkipVerify
 	}
 
 	if v := os.Getenv("SERVER_URL"); v != "" {
@@ -55,6 +58,10 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 
 	if v := os.Getenv("SESSION_FILE"); v != "" {
 		out.SessionFile = v
+	}
+
+	if v := os.Getenv("INSECURE_SKIP_VERIFY"); v == "true" || v == "1" {
+		out.InsecureSkipVerify = true
 	}
 
 	if runtime.GOOS == "windows" && strings.HasPrefix(out.SessionFile, "~") {

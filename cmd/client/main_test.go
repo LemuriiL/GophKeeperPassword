@@ -37,7 +37,7 @@ func TestRunClientOK(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 
-	code := run([]string{"-config", "client.json", "list", "--master-password", "local-master"}, &out, &errOut)
+	code := run([]string{"-config", "client.json", "list"}, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("unexpected code: %d", code)
 	}

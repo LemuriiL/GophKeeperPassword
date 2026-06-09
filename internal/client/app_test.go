@@ -31,7 +31,7 @@ func newTestClientApp(t *testing.T) (*App, func()) {
 	cfgPath := filepath.Join(dir, "client.json")
 	sessionPath := filepath.Join(dir, ".gophkeeper_session.json")
 
-	cfgData, err := json.Marshal(map[string]string{
+	cfgData, err := json.Marshal(map[string]any{
 		"server_url":   ts.URL,
 		"session_file": sessionPath,
 	})
@@ -78,17 +78,49 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
+func withStdin(t *testing.T, input string, fn func()) {
+	t.Helper()
+
+	old := os.Stdin
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = w.WriteString(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	os.Stdin = r
+	defer func() {
+		os.Stdin = old
+		_ = r.Close()
+	}()
+
+	fn()
+}
+
 func TestAppRunRegisterLoginAddListGetUpdateDelete(t *testing.T) {
 	app, cleanup := newTestClientApp(t)
 	defer cleanup()
 
-	if err := app.Run([]string{"register", "--login", "user1", "--password", "pass1"}); err != nil {
-		t.Fatal(err)
-	}
+	withStdin(t, "pass1\n", func() {
+		if err := app.Run([]string{"register", "--login", "user1"}); err != nil {
+			t.Fatal(err)
+		}
+	})
 
-	if err := app.Run([]string{"login", "--login", "user1", "--password", "pass1"}); err != nil {
-		t.Fatal(err)
-	}
+	withStdin(t, "pass1\n", func() {
+		if err := app.Run([]string{"login", "--login", "user1"}); err != nil {
+			t.Fatal(err)
+		}
+	})
 
 	session, err := LoadSession(app.cfg.SessionFile)
 	if err != nil {
@@ -105,17 +137,18 @@ func TestAppRunRegisterLoginAddListGetUpdateDelete(t *testing.T) {
 
 	var itemID string
 	out := captureStdout(t, func() {
-		err := app.Run([]string{
-			"add",
-			"--type", "text",
-			"--title", "note1",
-			"--meta", "test",
-			"--value", `{"text":"hello"}`,
-			"--master-password", "local-master",
+		withStdin(t, "local-master\n", func() {
+			err := app.Run([]string{
+				"add",
+				"--type", "text",
+				"--title", "note1",
+				"--meta", "test",
+				"--value", `{"text":"hello"}`,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
 	})
 	itemID = strings.TrimSpace(out)
 	if itemID == "" {
@@ -123,58 +156,70 @@ func TestAppRunRegisterLoginAddListGetUpdateDelete(t *testing.T) {
 	}
 
 	out = captureStdout(t, func() {
-		err := app.Run([]string{
-			"list",
-			"--master-password", "local-master",
+		withStdin(t, "local-master\n", func() {
+			err := app.Run([]string{
+				"list",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
 	})
 
 	if !strings.Contains(out, "Title: note1") {
 		t.Fatalf("unexpected list output: %s", out)
 	}
 
+	if !strings.Contains(out, `{"text":"hello"}`) {
+		t.Fatalf("unexpected list output: %s", out)
+	}
+
 	out = captureStdout(t, func() {
-		err := app.Run([]string{
-			"get",
-			"--id", itemID,
-			"--master-password", "local-master",
+		withStdin(t, "local-master\n", func() {
+			err := app.Run([]string{
+				"get",
+				"--id", itemID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
 	})
 
 	if !strings.Contains(out, "ID: "+itemID) {
 		t.Fatalf("unexpected get output: %s", out)
 	}
 
-	if err := app.Run([]string{
-		"update",
-		"--id", itemID,
-		"--type", "text",
-		"--title", "note2",
-		"--meta", "test2",
-		"--value", `{"text":"updated"}`,
-		"--master-password", "local-master",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	out = captureStdout(t, func() {
-		err := app.Run([]string{
-			"get",
+	withStdin(t, "local-master\n", func() {
+		if err := app.Run([]string{
+			"update",
 			"--id", itemID,
-			"--master-password", "local-master",
-		})
-		if err != nil {
+			"--type", "text",
+			"--title", "note2",
+			"--meta", "test2",
+			"--value", `{"text":"updated"}`,
+		}); err != nil {
 			t.Fatal(err)
 		}
 	})
 
+	out = captureStdout(t, func() {
+		withStdin(t, "local-master\n", func() {
+			err := app.Run([]string{
+				"get",
+				"--id", itemID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	})
+
 	if !strings.Contains(out, "Title: note2") {
+		t.Fatalf("unexpected updated get output: %s", out)
+	}
+
+	if !strings.Contains(out, `{"text":"updated"}`) {
 		t.Fatalf("unexpected updated get output: %s", out)
 	}
 
@@ -210,27 +255,29 @@ func TestAppRunListWithoutSession(t *testing.T) {
 	app, cleanup := newTestClientApp(t)
 	defer cleanup()
 
-	err := app.Run([]string{
-		"list",
-		"--master-password", "local-master",
+	withStdin(t, "local-master\n", func() {
+		err := app.Run([]string{
+			"list",
+		})
+		if err == nil {
+			t.Fatal("expected error")
+		}
 	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
 }
 
 func TestAppRunGetWithoutSession(t *testing.T) {
 	app, cleanup := newTestClientApp(t)
 	defer cleanup()
 
-	err := app.Run([]string{
-		"get",
-		"--id", "missing",
-		"--master-password", "local-master",
+	withStdin(t, "local-master\n", func() {
+		err := app.Run([]string{
+			"get",
+			"--id", "missing",
+		})
+		if err == nil {
+			t.Fatal("expected error")
+		}
 	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
 }
 
 func TestAppRunDeleteWithoutSession(t *testing.T) {
@@ -250,9 +297,11 @@ func TestAppRegisterCreatesSession(t *testing.T) {
 	app, cleanup := newTestClientApp(t)
 	defer cleanup()
 
-	if err := app.Run([]string{"register", "--login", "user3", "--password", "pass3"}); err != nil {
-		t.Fatal(err)
-	}
+	withStdin(t, "pass3\n", func() {
+		if err := app.Run([]string{"register", "--login", "user3"}); err != nil {
+			t.Fatal(err)
+		}
+	})
 
 	session, err := LoadSession(app.cfg.SessionFile)
 	if err != nil {
@@ -272,13 +321,17 @@ func TestAppLoginWritesSession(t *testing.T) {
 	app, cleanup := newTestClientApp(t)
 	defer cleanup()
 
-	if err := app.Run([]string{"register", "--login", "user2", "--password", "pass2"}); err != nil {
-		t.Fatal(err)
-	}
+	withStdin(t, "pass2\n", func() {
+		if err := app.Run([]string{"register", "--login", "user2"}); err != nil {
+			t.Fatal(err)
+		}
+	})
 
-	if err := app.Run([]string{"login", "--login", "user2", "--password", "pass2"}); err != nil {
-		t.Fatal(err)
-	}
+	withStdin(t, "pass2\n", func() {
+		if err := app.Run([]string{"login", "--login", "user2"}); err != nil {
+			t.Fatal(err)
+		}
+	})
 
 	session, err := LoadSession(app.cfg.SessionFile)
 	if err != nil {

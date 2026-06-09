@@ -26,7 +26,7 @@ func NewApp(configShort string, configLong string) (*App, error) {
 
 	return &App{
 		cfg: cfg,
-		api: NewAPIClient(cfg.ServerURL),
+		api: NewAPIClient(cfg.ServerURL, cfg.InsecureSkipVerify),
 	}, nil
 }
 
@@ -56,17 +56,17 @@ func (a *App) Run(args []string) error {
 	}
 }
 
+// runRegister регистрирует пользователя
 func (a *App) runRegister(args []string) error {
 	fs := flag.NewFlagSet("register", flag.ContinueOnError)
 
 	login := fs.String("login", "", "login")
-	passwordFlag := fs.String("password", "", "password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	password, err := resolveSecret(*passwordFlag, "Password: ")
+	password, err := ReadSecret("Password: ")
 	if err != nil {
 		return err
 	}
@@ -82,17 +82,17 @@ func (a *App) runRegister(args []string) error {
 	})
 }
 
+// runLogin авторизует пользователя
 func (a *App) runLogin(args []string) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 
 	login := fs.String("login", "", "login")
-	passwordFlag := fs.String("password", "", "password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	password, err := resolveSecret(*passwordFlag, "Password: ")
+	password, err := ReadSecret("Password: ")
 	if err != nil {
 		return err
 	}
@@ -113,6 +113,7 @@ func (a *App) runLogin(args []string) error {
 	return SaveSession(a.cfg.SessionFile, session)
 }
 
+// runAdd добавляет секрет
 func (a *App) runAdd(args []string) error {
 	fs := flag.NewFlagSet("add", flag.ContinueOnError)
 
@@ -120,13 +121,12 @@ func (a *App) runAdd(args []string) error {
 	title := fs.String("title", "", "title")
 	meta := fs.String("meta", "", "meta")
 	value := fs.String("value", "", "value json")
-	passwordFlag := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	masterPassword, err := resolveSecret(*passwordFlag, "Master password: ")
+	masterPassword, err := ReadSecret("Master password: ")
 	if err != nil {
 		return err
 	}
@@ -162,17 +162,17 @@ func (a *App) runAdd(args []string) error {
 	return nil
 }
 
+// runGet получает секрет по ID
 func (a *App) runGet(args []string) error {
 	fs := flag.NewFlagSet("get", flag.ContinueOnError)
 
 	id := fs.String("id", "", "item id")
-	passwordFlag := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	masterPassword, err := resolveSecret(*passwordFlag, "Master password: ")
+	masterPassword, err := ReadSecret("Master password: ")
 	if err != nil {
 		return err
 	}
@@ -191,16 +191,15 @@ func (a *App) runGet(args []string) error {
 	return nil
 }
 
+// runList получает список секретов
 func (a *App) runList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
-
-	passwordFlag := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	masterPassword, err := resolveSecret(*passwordFlag, "Master password: ")
+	masterPassword, err := ReadSecret("Master password: ")
 	if err != nil {
 		return err
 	}
@@ -222,6 +221,7 @@ func (a *App) runList(args []string) error {
 	return nil
 }
 
+// runUpdate обновляет секрет
 func (a *App) runUpdate(args []string) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 
@@ -230,13 +230,12 @@ func (a *App) runUpdate(args []string) error {
 	title := fs.String("title", "", "title")
 	meta := fs.String("meta", "", "meta")
 	value := fs.String("value", "", "value json")
-	passwordFlag := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	masterPassword, err := resolveSecret(*passwordFlag, "Master password: ")
+	masterPassword, err := ReadSecret("Master password: ")
 	if err != nil {
 		return err
 	}
@@ -268,6 +267,7 @@ func (a *App) runUpdate(args []string) error {
 	return err
 }
 
+// runDelete удаляет секрет
 func (a *App) runDelete(args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
 
@@ -285,6 +285,7 @@ func (a *App) runDelete(args []string) error {
 	return a.api.DeleteItem(session.Token, *id)
 }
 
+// printItem выводит секрет в консоль
 func printItem(item dto.ItemResponse, sessionSalt string, password string) {
 	salt := item.Salt
 	if strings.TrimSpace(salt) == "" {
@@ -293,7 +294,7 @@ func printItem(item dto.ItemResponse, sessionSalt string, password string) {
 
 	plain, err := DecryptPayload(password, salt, item.Ciphertext, item.Nonce)
 	if err != nil {
-		plain = ""
+		plain = "<decrypt error: " + err.Error() + ">"
 	}
 
 	fmt.Println(strings.Repeat("-", 40))

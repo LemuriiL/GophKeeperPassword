@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -12,19 +13,20 @@ import (
 func ReadSecret(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
 
-	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(os.Stderr)
+		if err != nil {
+			return "", err
+		}
+
+		return strings.TrimSpace(string(raw)), nil
+	}
+
+	raw, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil {
 		return "", err
 	}
 
-	return strings.TrimSpace(string(raw)), nil
-}
-
-func resolveSecret(flagValue string, prompt string) (string, error) {
-	if strings.TrimSpace(flagValue) != "" {
-		return flagValue, nil
-	}
-
-	return ReadSecret(prompt)
+	return strings.TrimSpace(raw), nil
 }
