@@ -2,27 +2,30 @@
 
 GophKeeper — клиент-серверный менеджер секретов.
 
-## Что умеет
+## Возможности
 
-* регистрация и логин пользователя
+* регистрация пользователя
+* вход пользователя
 * JWT-авторизация
 * хранение секретов на сервере
 * синхронизация секретов между клиентами одного пользователя
-* локальное шифрование секрета на клиенте мастер-паролем
+* локальное шифрование секретов на клиенте мастер-паролем
 * хранение на сервере только зашифрованных данных
-* типы секретов:
-
-  * login/password
-  * text
-  * binary
-  * card
-* build info у клиента и сервера
-* JSON-конфиг для клиента и сервера
+* TLS для соединения клиента и сервера
+* JSON-конфиги клиента и сервера
 * graceful shutdown сервера
+* build info у клиента и сервера
+
+Поддерживаемые типы секретов:
+
+* `login_password`
+* `text`
+* `binary`
+* `card`
 
 ## Архитектура
 
-* `cmd/server` — HTTP-сервер
+* `cmd/server` — серверное приложение
 * `cmd/client` — CLI-клиент
 * `internal/server` — серверная логика
 * `internal/client` — клиентская логика
@@ -30,7 +33,7 @@ GophKeeper — клиент-серверный менеджер секретов
 * `internal/cfg` — загрузка JSON-конфигов
 * `configs` — примеры конфигов
 
-Сервер отвечает за регистрацию, авторизацию и хранение секретов.
+Сервер отвечает за регистрацию, авторизацию и хранение зашифрованных секретов.
 
 Клиент отвечает за шифрование и расшифровку секретов. Мастер-пароль не отправляется на сервер. Сервер хранит только шифротекст, nonce и salt.
 
@@ -42,7 +45,9 @@ GophKeeper — клиент-серверный менеджер секретов
 
 В репозитории лежит пример конфига:
 
-`configs/server.json`
+```text
+configs/server.example.json
+```
 
 Пример содержимого:
 
@@ -50,15 +55,30 @@ GophKeeper — клиент-серверный менеджер секретов
 {
   "address": ":8080",
   "db_path": "gophkeeper.db",
-  "jwt_secret": "supersecret"
+  "jwt_secret": "change-me-for-local-development",
+  "tls_cert_file": "certs/server.crt",
+  "tls_key_file": "certs/server.key"
 }
 ```
 
 Поля:
 
-* `address` — адрес запуска HTTP-сервера
-* `db_path` — путь к файлу локальной базы данных
+* `address` — адрес запуска сервера
+* `db_path` — путь к файлу SQLite
 * `jwt_secret` — секрет для подписи JWT-токенов
+* `tls_cert_file` — путь к TLS-сертификату
+* `tls_key_file` — путь к TLS-ключу
+
+`jwt_secret` обязательно должен быть задан через конфиг или переменную окружения `JWT_SECRET`.
+
+Если `tls_cert_file` и `tls_key_file` заданы, сервер запускается через TLS. Если оба поля пустые, сервер запускается без TLS.
+
+Для локального запуска можно скопировать пример:
+
+```bash
+cp configs/server.example.json configs/server.json
+```
+
 
 Путь к конфигу можно передать через флаг:
 
@@ -72,18 +92,30 @@ GophKeeper — клиент-серверный менеджер секретов
 ./gophkeeper-server -c configs/server.json
 ```
 
+Также поддерживаются переменные окружения:
+
+* `CONFIG`
+* `ADDRESS`
+* `DB_PATH`
+* `JWT_SECRET`
+* `TLS_CERT_FILE`
+* `TLS_KEY_FILE`
+
 ## Конфиг клиента
 
 В репозитории лежит пример конфига:
 
-`configs/client.json`
+```text
+configs/client.example.json
+```
 
 Пример содержимого:
 
 ```json
 {
-  "server_url": "http://localhost:8080",
-  "session_file": ".gophkeeper_session.json"
+  "server_url": "https://localhost:8080",
+  "session_file": ".gophkeeper_session.json",
+  "insecure_skip_verify": true
 }
 ```
 
@@ -91,6 +123,13 @@ GophKeeper — клиент-серверный менеджер секретов
 
 * `server_url` — адрес сервера
 * `session_file` — путь к файлу локальной клиентской сессии
+* `insecure_skip_verify` — отключение проверки TLS-сертификата для локального самоподписанного сертификата
+
+Для локального запуска можно скопировать пример:
+
+```bash
+cp configs/client.example.json configs/client.json
+```
 
 Путь к конфигу можно передать через флаг:
 
@@ -104,48 +143,47 @@ GophKeeper — клиент-серверный менеджер секретов
 ./gophkeeper-client -c configs/client.json
 ```
 
+Также поддерживаются переменные окружения:
+
+* `CONFIG`
+* `SERVER_URL`
+* `SESSION_FILE`
+* `INSECURE_SKIP_VERIFY`
+
+## TLS-сертификат для локального запуска
+Сгенерировать самоподписанный сертификат можно через OpenSSL:
+
+```bash
+openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt -sha256 -days 365 -nodes -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+```
+
+Для локального самоподписанного сертификата в клиентском конфиге можно оставить:
+
+```json
+"insecure_skip_verify": true
+```
+
+Для реального сертификата это значение должно быть false.
+
 ## Сборка
 
-### Сервер
+Сервер:
 
 ```bash
 go build -ldflags="-X main.buildVersion=1.0.0 -X main.buildDate=2026-06-01 -X main.buildCommit=local" -o gophkeeper-server ./cmd/server
 ```
 
-Для Windows:
-
-```bash
-go build -ldflags="-X main.buildVersion=1.0.0 -X main.buildDate=2026-06-01 -X main.buildCommit=local" -o gophkeeper-server.exe ./cmd/server
-```
-
-### Клиент
+Клиент:
 
 ```bash
 go build -ldflags="-X main.buildVersion=1.0.0 -X main.buildDate=2026-06-01 -X main.buildCommit=local" -o gophkeeper-client ./cmd/client
 ```
 
-Для Windows:
-
-```bash
-go build -ldflags="-X main.buildVersion=1.0.0 -X main.buildDate=2026-06-01 -X main.buildCommit=local" -o gophkeeper-client.exe ./cmd/client
-```
 
 ## Запуск сервера
 
 ```bash
 ./gophkeeper-server -config configs/server.json
-```
-
-Для Windows:
-
-```bash
-.\gophkeeper-server.exe -config configs/server.json
-```
-
-По умолчанию сервер запускается на адресе из конфига:
-
-```text
-:8080
 ```
 
 ## CLI-клиент
@@ -156,81 +194,64 @@ go build -ldflags="-X main.buildVersion=1.0.0 -X main.buildDate=2026-06-01 -X ma
 * `login` — вход пользователя
 * `add` — добавление секрета
 * `get` — получение секрета по ID
-* `list` — вывод списка секретов
+* `list` — список секретов
 * `update` — обновление секрета
 * `delete` — удаление секрета
 
-Во всех примерах ниже используется конфиг:
+Во всех примерах используется конфиг:
 
 ```bash
 -config configs/client.json
 ```
 
-Для Windows вместо `./gophkeeper-client` можно использовать:
-
-```bash
-.\gophkeeper-client.exe
-```
-
 ## Регистрация
 
 ```bash
-./gophkeeper-client -config configs/client.json register --login user1 --password pass1
+./gophkeeper-client -config configs/client.json register --login user1
 ```
-
-После успешной регистрации клиент сохраняет локальную сессию в файл, указанный в `session_file`.
 
 ## Логин
 
 ```bash
-./gophkeeper-client -config configs/client.json login --login user1 --password pass1
+./gophkeeper-client -config configs/client.json login --login user1
 ```
 
-После успешного логина клиент обновляет локальную сессию.
-
-## Добавление секрета
-
-Пример добавления текстового секрета:
+## Добавление текстового секрета
 
 ```bash
-./gophkeeper-client -config configs/client.json add --type text --title note1 --meta test --value "{\"text\":\"hello\"}" --master-password masterpass
+./gophkeeper-client -config configs/client.json add --type text --title note1 --meta test --value "{\"text\":\"hello\"}"
 ```
 
-После успешного добавления команда выводит ID созданного секрета.
-
-Пример добавления пары логин/пароль:
+## Добавление пары логин-пароль
 
 ```bash
-./gophkeeper-client -config configs/client.json add --type login_password --title github --meta work --value "{\"login\":\"user1\",\"password\":\"secret\"}" --master-password masterpass
+./gophkeeper-client -config configs/client.json add --type login_password --title github --meta work --value "{\"login\":\"user1\",\"password\":\"secret\"}"
 ```
 
-Пример добавления банковской карты:
+## Добавление банковской карты
 
 ```bash
-./gophkeeper-client -config configs/client.json add --type card --title main-card --meta bank --value "{\"number\":\"4111111111111111\",\"holder\":\"USER TEST\",\"month\":\"12\",\"year\":\"2030\",\"cvv\":\"123\"}" --master-password masterpass
+./gophkeeper-client -config configs/client.json add --type card --title main-card --meta bank --value "{\"number\":\"4111111111111111\",\"holder\":\"USER TEST\",\"month\":\"12\",\"year\":\"2030\",\"cvv\":\"123\"}"
 ```
 
 ## Получение секрета по ID
 
 ```bash
-./gophkeeper-client -config configs/client.json get --id secret-id --master-password masterpass
+./gophkeeper-client -config configs/client.json get --id secret-id
 ```
-
-Команда выводит данные секрета и расшифрованное значение.
 
 ## Список секретов
 
 ```bash
-./gophkeeper-client -config configs/client.json list --master-password masterpass
+./gophkeeper-client -config configs/client.json list
 ```
-
-Команда выводит список секретов текущего пользователя.
 
 ## Обновление секрета
 
 ```bash
-./gophkeeper-client -config configs/client.json update --id secret-id --type text --title note1-updated --meta updated --value "{\"text\":\"new value\"}" --master-password masterpass
+./gophkeeper-client -config configs/client.json update --id secret-id --type text --title note1-updated --meta updated --value "{\"text\":\"new value\"}"
 ```
+
 
 ## Удаление секрета
 
@@ -238,60 +259,8 @@ go build -ldflags="-X main.buildVersion=1.0.0 -X main.buildDate=2026-06-01 -X ma
 ./gophkeeper-client -config configs/client.json delete --id secret-id
 ```
 
-## Безопасность
-
-Пароли через CLI-флаги `--password` и `--master-password` небезопасны, потому что могут остаться в истории команд и списке процессов.
-
-В обычном сценарии клиент должен запрашивать пароль и мастер-пароль интерактивно.
-
-Флаги можно использовать для тестов и неинтерактивных сценариев.
-
-## Пример полного сценария
-
-Сначала запускается сервер:
+## Проверка
 
 ```bash
-./gophkeeper-server -config configs/server.json
-```
-
-Затем пользователь регистрируется:
-
-```bash
-./gophkeeper-client -config configs/client.json register --login user1 --password pass1
-```
-
-Добавляет секрет:
-
-```bash
-./gophkeeper-client -config configs/client.json add --type text --title note1 --meta test --value "{\"text\":\"hello\"}" --master-password masterpass
-```
-
-Смотрит список секретов:
-
-```bash
-./gophkeeper-client -config configs/client.json list --master-password masterpass
-```
-
-Получает конкретный секрет по ID:
-
-```bash
-./gophkeeper-client -config configs/client.json get --id secret-id --master-password masterpass
-```
-
-## Build info
-
-При запуске клиент и сервер выводят build info:
-
-```text
-Build version: 1.0.0
-Build date: 2026-06-01
-Build commit: local
-```
-
-Если значения не были переданы через `ldflags`, будут выведены значения по умолчанию:
-
-```text
-Build version: N/A
-Build date: N/A
-Build commit: N/A
+go test ./...
 ```
