@@ -2,12 +2,16 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/dto"
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
 )
+
+var ErrLoginExists = errors.New("login already exists")
 
 // Handler хранит HTTP хендлеры сервера
 type Handler struct {
@@ -40,26 +44,22 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.auth.IsUniqueLogin(r.Context(), login)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if !ok {
-		http.Error(w, "login already exists", http.StatusConflict)
-		return
-	}
-
 	user, err := h.auth.Register(r.Context(), login, req.Password)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errors.Is(err, ErrLoginExists) {
+			http.Error(w, "login already exists", http.StatusConflict)
+			return
+		}
+
+		slog.Error("register user", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	token, err := h.tokens.Issue(user.ID, user.Login)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("issue token after register", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -91,7 +91,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	token, err := h.tokens.Issue(user.ID, user.Login)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("issue token after login", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -132,7 +133,8 @@ func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 		Salt:       req.Salt,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("upsert item", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -155,7 +157,8 @@ func (h *Handler) GetItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("get item", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -167,7 +170,8 @@ func (h *Handler) GetItem(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListItems(w http.ResponseWriter, r *http.Request) {
 	items, err := h.items.List(r.Context(), userIDFromContext(r.Context()))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("list items", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -194,7 +198,8 @@ func (h *Handler) DeleteItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("delete item", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 

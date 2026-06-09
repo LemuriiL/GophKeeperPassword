@@ -1,8 +1,8 @@
 package server
 
 import (
+	"errors"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/cfg"
@@ -20,9 +20,8 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 	path := pickString("CONFIG", shortPath, longPath)
 
 	out := Config{
-		Address:   ":8080",
-		DBPath:    "gophkeeper.db",
-		JWTSecret: "supersecret",
+		Address: ":8080",
+		DBPath:  "gophkeeper.db",
 	}
 
 	if strings.TrimSpace(path) != "" {
@@ -56,6 +55,10 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 		out.JWTSecret = v
 	}
 
+	if strings.TrimSpace(out.JWTSecret) == "" {
+		return Config{}, errors.New("JWT_SECRET is required")
+	}
+
 	return out, nil
 }
 
@@ -71,15 +74,4 @@ func pickString(envName string, values ...string) string {
 	}
 
 	return ""
-}
-
-func pickInt(envName string, def int) int {
-	if v := os.Getenv(envName); v != "" {
-		n, err := strconv.Atoi(v)
-		if err == nil {
-			return n
-		}
-	}
-
-	return def
 }

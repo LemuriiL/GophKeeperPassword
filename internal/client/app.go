@@ -60,13 +60,18 @@ func (a *App) runRegister(args []string) error {
 	fs := flag.NewFlagSet("register", flag.ContinueOnError)
 
 	login := fs.String("login", "", "login")
-	password := fs.String("password", "", "password")
+	passwordFlag := fs.String("password", "", "password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	token, _, err := a.api.Register(*login, *password)
+	password, err := resolveSecret(*passwordFlag, "Password: ")
+	if err != nil {
+		return err
+	}
+
+	token, _, err := a.api.Register(*login, password)
 	if err != nil {
 		return err
 	}
@@ -81,13 +86,18 @@ func (a *App) runLogin(args []string) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 
 	login := fs.String("login", "", "login")
-	password := fs.String("password", "", "password")
+	passwordFlag := fs.String("password", "", "password")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	token, err := a.api.Login(*login, *password)
+	password, err := resolveSecret(*passwordFlag, "Password: ")
+	if err != nil {
+		return err
+	}
+
+	token, err := a.api.Login(*login, password)
 	if err != nil {
 		return err
 	}
@@ -110,9 +120,14 @@ func (a *App) runAdd(args []string) error {
 	title := fs.String("title", "", "title")
 	meta := fs.String("meta", "", "meta")
 	value := fs.String("value", "", "value json")
-	password := fs.String("master-password", "", "master password")
+	passwordFlag := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	masterPassword, err := resolveSecret(*passwordFlag, "Master password: ")
+	if err != nil {
 		return err
 	}
 
@@ -126,7 +141,7 @@ func (a *App) runAdd(args []string) error {
 		return err
 	}
 
-	ciphertext, nonce, err := EncryptPayload(*password, itemSalt, *value)
+	ciphertext, nonce, err := EncryptPayload(masterPassword, itemSalt, *value)
 	if err != nil {
 		return err
 	}
@@ -151,9 +166,14 @@ func (a *App) runGet(args []string) error {
 	fs := flag.NewFlagSet("get", flag.ContinueOnError)
 
 	id := fs.String("id", "", "item id")
-	password := fs.String("master-password", "", "master password")
+	passwordFlag := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	masterPassword, err := resolveSecret(*passwordFlag, "Master password: ")
+	if err != nil {
 		return err
 	}
 
@@ -167,16 +187,21 @@ func (a *App) runGet(args []string) error {
 		return err
 	}
 
-	printItem(item, session.Salt, *password)
+	printItem(item, session.Salt, masterPassword)
 	return nil
 }
 
 func (a *App) runList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 
-	password := fs.String("master-password", "", "master password")
+	passwordFlag := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	masterPassword, err := resolveSecret(*passwordFlag, "Master password: ")
+	if err != nil {
 		return err
 	}
 
@@ -191,7 +216,7 @@ func (a *App) runList(args []string) error {
 	}
 
 	for _, item := range items {
-		printItem(item, session.Salt, *password)
+		printItem(item, session.Salt, masterPassword)
 	}
 
 	return nil
@@ -205,9 +230,14 @@ func (a *App) runUpdate(args []string) error {
 	title := fs.String("title", "", "title")
 	meta := fs.String("meta", "", "meta")
 	value := fs.String("value", "", "value json")
-	password := fs.String("master-password", "", "master password")
+	passwordFlag := fs.String("master-password", "", "master password")
 
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	masterPassword, err := resolveSecret(*passwordFlag, "Master password: ")
+	if err != nil {
 		return err
 	}
 
@@ -221,7 +251,7 @@ func (a *App) runUpdate(args []string) error {
 		return err
 	}
 
-	ciphertext, nonce, err := EncryptPayload(*password, itemSalt, *value)
+	ciphertext, nonce, err := EncryptPayload(masterPassword, itemSalt, *value)
 	if err != nil {
 		return err
 	}

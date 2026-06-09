@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"strings"
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
 	"github.com/LemuriiL/GophKeeperPassword/internal/secure"
@@ -39,6 +40,9 @@ func (s *AuthService) Register(ctx context.Context, login string, password strin
 
 	id, err := s.store.CreateUser(ctx, user)
 	if err != nil {
+		if isUniqueLoginErr(err) {
+			return model.User{}, ErrLoginExists
+		}
 		return model.User{}, err
 	}
 
@@ -78,4 +82,13 @@ func (s *AuthService) IsUniqueLogin(ctx context.Context, login string) (bool, er
 	}
 
 	return false, err
+}
+
+func isUniqueLoginErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique") || strings.Contains(msg, "constraint failed")
 }

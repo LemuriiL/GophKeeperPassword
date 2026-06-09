@@ -1,0 +1,6 @@
+.idea/
+.gophkeeper_session.json
+gophkeeper.db
+errors.txt
+configs/server.json
+configs/client.local.json

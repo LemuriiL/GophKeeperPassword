@@ -7,27 +7,15 @@ import (
 	"testing"
 )
 
-func TestLoadConfigDefaults(t *testing.T) {
+func TestLoadConfigDefaultsRequiresJWTSecret(t *testing.T) {
 	t.Setenv("CONFIG", "")
 	t.Setenv("ADDRESS", "")
 	t.Setenv("DB_PATH", "")
 	t.Setenv("JWT_SECRET", "")
 
-	cfg, err := LoadConfig("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if cfg.Address != ":8080" {
-		t.Fatalf("unexpected address: %s", cfg.Address)
-	}
-
-	if cfg.DBPath != "gophkeeper.db" {
-		t.Fatalf("unexpected db path: %s", cfg.DBPath)
-	}
-
-	if cfg.JWTSecret != "supersecret" {
-		t.Fatalf("unexpected secret: %s", cfg.JWTSecret)
+	_, err := LoadConfig("", "")
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 

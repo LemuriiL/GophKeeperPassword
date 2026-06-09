@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -61,16 +60,7 @@ CREATE TABLE IF NOT EXISTS items (
 `
 
 	_, err := s.db.ExecContext(ctx, query)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.db.ExecContext(ctx, `ALTER TABLE items ADD COLUMN salt TEXT NOT NULL DEFAULT ''`)
-	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (s *SQLite) CreateUser(ctx context.Context, user model.User) (int64, error) {

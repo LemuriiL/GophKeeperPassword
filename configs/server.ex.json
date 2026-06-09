@@ -1,5 +1,5 @@
 {
   "address": ":8080",
   "db_path": "gophkeeper.db",
-  "jwt_secret": "supersecret"
+  "jwt_secret": "local secret"
 }
