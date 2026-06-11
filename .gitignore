@@ -1,0 +1,13 @@
+.gophkeeper_session.json
+*.db
+*.db-shm
+*.db-wal
+*.exe
+*.test
+configs/server.json
+configs/client.json
+.idea
+.vscode
+tmp
+dist
+bin

@@ -1,0 +1,5 @@
+{
+  "server_url": "https://localhost:8080",
+  "session_file": ".gophkeeper_session.json",
+  "insecure_skip_verify": true
+}

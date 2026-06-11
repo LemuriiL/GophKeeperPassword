@@ -1,0 +1,7 @@
+{
+  "address": ":8080",
+  "db_path": "gophkeeper.db",
+  "jwt_secret": "ChangeMe",
+  "tls_cert_file": "certs/server.crt",
+  "tls_key_file": "certs/server.key"
+}
