@@ -13,6 +13,7 @@ type stubServerApp struct {
 	runErr      error
 	shutdownErr error
 	closeErr    error
+	closed      bool
 }
 
 func (s *stubServerApp) Run() error {
@@ -24,110 +25,119 @@ func (s *stubServerApp) Shutdown(ctx context.Context) error {
 }
 
 func (s *stubServerApp) Close() error {
+	s.closed = true
 	return s.closeErr
 }
 
-func TestRunServerOK(t *testing.T) {
-	oldLoad := loadServerConfig
-	oldNew := newServerApp
-	defer func() {
-		loadServerConfig = oldLoad
-		newServerApp = oldNew
-	}()
-
-	loadServerConfig = func(shortPath string, longPath string) (server.Config, error) {
-		return server.Config{
-			Address:   ":8080",
-			DBPath:    ":memory:",
-			JWTSecret: "secret",
-		}, nil
-	}
-
-	newServerApp = func(cfg server.Config) (serverApp, error) {
-		return &stubServerApp{}, nil
-	}
-
+func TestRunServerVersionFlag(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 
-	code := run([]string{"-config", "server.json"}, &out, &errOut)
+	code := run([]string{"-version"}, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("unexpected code: %d", code)
 	}
+
+	if !bytes.Contains(out.Bytes(), []byte("Build version:")) {
+		t.Fatalf("unexpected output: %s", out.String())
+	}
 }
 
-func TestRunServerLoadConfigError(t *testing.T) {
-	oldLoad := loadServerConfig
-	defer func() {
-		loadServerConfig = oldLoad
-	}()
-
-	loadServerConfig = func(shortPath string, longPath string) (server.Config, error) {
-		return server.Config{}, errors.New("bad config")
-	}
-
+func TestRunServerVersionCommand(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 
-	code := run([]string{"-config", "server.json"}, &out, &errOut)
+	code := run([]string{"version"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("unexpected code: %d", code)
+	}
+
+	if !bytes.Contains(out.Bytes(), []byte("Build version:")) {
+		t.Fatalf("unexpected output: %s", out.String())
+	}
+}
+
+func TestRunServerConfigError(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := run([]string{}, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("unexpected code: %d", code)
 	}
+
+	if !bytes.Contains(errOut.Bytes(), []byte("JWT_SECRET is required")) {
+		t.Fatalf("unexpected stderr: %s", errOut.String())
+	}
 }
 
-func TestRunServerNewAppError(t *testing.T) {
-	oldLoad := loadServerConfig
-	oldNew := newServerApp
+func TestRunServerAppFactoryError(t *testing.T) {
+	oldFactory := newServerApp
 	defer func() {
-		loadServerConfig = oldLoad
-		newServerApp = oldNew
+		newServerApp = oldFactory
 	}()
 
-	loadServerConfig = func(shortPath string, longPath string) (server.Config, error) {
-		return server.Config{
-			Address:   ":8080",
-			DBPath:    ":memory:",
-			JWTSecret: "secret",
-		}, nil
-	}
+	t.Setenv("JWT_SECRET", "secret")
+	t.Setenv("TLS_CERT_FILE", "cert.pem")
+	t.Setenv("TLS_KEY_FILE", "key.pem")
 
 	newServerApp = func(cfg server.Config) (serverApp, error) {
-		return nil, errors.New("new app failed")
+		return nil, errors.New("factory failed")
 	}
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 
-	code := run([]string{"-config", "server.json"}, &out, &errOut)
+	code := run([]string{}, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("unexpected code: %d", code)
 	}
+
+	if !bytes.Contains(errOut.Bytes(), []byte("factory failed")) {
+		t.Fatalf("unexpected stderr: %s", errOut.String())
+	}
 }
 
-func TestRunServerAppRunError(t *testing.T) {
-	oldLoad := loadServerConfig
-	oldNew := newServerApp
+func TestRunServerRunError(t *testing.T) {
+	oldFactory := newServerApp
 	defer func() {
-		loadServerConfig = oldLoad
-		newServerApp = oldNew
+		newServerApp = oldFactory
 	}()
 
-	loadServerConfig = func(shortPath string, longPath string) (server.Config, error) {
-		return server.Config{
-			Address:   ":8080",
-			DBPath:    ":memory:",
-			JWTSecret: "secret",
-		}, nil
+	t.Setenv("JWT_SECRET", "secret")
+	t.Setenv("TLS_CERT_FILE", "cert.pem")
+	t.Setenv("TLS_KEY_FILE", "key.pem")
+
+	app := &stubServerApp{
+		runErr: errors.New("run failed"),
 	}
 
 	newServerApp = func(cfg server.Config) (serverApp, error) {
-		return &stubServerApp{runErr: errors.New("run failed")}, nil
+		return app, nil
 	}
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 
-	code := run([]string{"-config", "server.json"}, &out, &errOut)
+	code := run([]string{}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("unexpected code: %d", code)
+	}
+
+	if !app.closed {
+		t.Fatal("expected app close")
+	}
+
+	if !bytes.Contains(errOut.Bytes(), []byte("run failed")) {
+		t.Fatalf("unexpected stderr: %s", errOut.String())
+	}
+}
+
+func TestRunServerFlagError(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := run([]string{"-bad-flag"}, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("unexpected code: %d", code)
 	}

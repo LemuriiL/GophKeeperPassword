@@ -7,13 +7,41 @@ import (
 	"testing"
 )
 
+func unsetServerConfigEnv(t *testing.T) {
+	t.Helper()
+
+	keys := []string{
+		"CONFIG",
+		"ADDRESS",
+		"DB_PATH",
+		"JWT_SECRET",
+		"TLS_CERT_FILE",
+		"TLS_KEY_FILE",
+	}
+
+	oldValues := make(map[string]string, len(keys))
+	oldExists := make(map[string]bool, len(keys))
+
+	for _, key := range keys {
+		value, ok := os.LookupEnv(key)
+		oldValues[key] = value
+		oldExists[key] = ok
+		_ = os.Unsetenv(key)
+	}
+
+	t.Cleanup(func() {
+		for _, key := range keys {
+			if oldExists[key] {
+				_ = os.Setenv(key, oldValues[key])
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		}
+	})
+}
+
 func TestLoadConfigDefaultsRequiresJWTSecret(t *testing.T) {
-	t.Setenv("CONFIG", "")
-	t.Setenv("ADDRESS", "")
-	t.Setenv("DB_PATH", "")
-	t.Setenv("JWT_SECRET", "")
-	t.Setenv("TLS_CERT_FILE", "")
-	t.Setenv("TLS_KEY_FILE", "")
+	unsetServerConfigEnv(t)
 
 	_, err := LoadConfig("", "")
 	if err == nil {
@@ -22,6 +50,8 @@ func TestLoadConfigDefaultsRequiresJWTSecret(t *testing.T) {
 }
 
 func TestLoadConfigFromFile(t *testing.T) {
+	unsetServerConfigEnv(t)
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.json")
 
@@ -41,13 +71,6 @@ func TestLoadConfigFromFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("CONFIG", "")
-	t.Setenv("ADDRESS", "")
-	t.Setenv("DB_PATH", "")
-	t.Setenv("JWT_SECRET", "")
-	t.Setenv("TLS_CERT_FILE", "")
-	t.Setenv("TLS_KEY_FILE", "")
-
 	cfg, err := LoadConfig(path, "")
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +85,7 @@ func TestLoadConfigFromFile(t *testing.T) {
 	}
 
 	if cfg.JWTSecret != "file-secret" {
-		t.Fatalf("unexpected secret: %s", cfg.JWTSecret)
+		t.Fatalf("unexpected jwt secret: %s", cfg.JWTSecret)
 	}
 
 	if cfg.TLSCertFile != "cert.pem" {
@@ -75,6 +98,8 @@ func TestLoadConfigFromFile(t *testing.T) {
 }
 
 func TestLoadConfigEnvOverride(t *testing.T) {
+	unsetServerConfigEnv(t)
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.json")
 
@@ -99,7 +124,6 @@ func TestLoadConfigEnvOverride(t *testing.T) {
 	t.Setenv("JWT_SECRET", "env-secret")
 	t.Setenv("TLS_CERT_FILE", "env-cert.pem")
 	t.Setenv("TLS_KEY_FILE", "env-key.pem")
-	t.Setenv("CONFIG", "")
 
 	cfg, err := LoadConfig(path, "")
 	if err != nil {
@@ -115,7 +139,7 @@ func TestLoadConfigEnvOverride(t *testing.T) {
 	}
 
 	if cfg.JWTSecret != "env-secret" {
-		t.Fatalf("unexpected secret: %s", cfg.JWTSecret)
+		t.Fatalf("unexpected jwt secret: %s", cfg.JWTSecret)
 	}
 
 	if cfg.TLSCertFile != "env-cert.pem" {
@@ -128,6 +152,8 @@ func TestLoadConfigEnvOverride(t *testing.T) {
 }
 
 func TestLoadConfigBadFile(t *testing.T) {
+	unsetServerConfigEnv(t)
+
 	path := filepath.Join(t.TempDir(), "bad.json")
 
 	err := os.WriteFile(path, []byte(`{"address":`), 0o600)
@@ -141,39 +167,9 @@ func TestLoadConfigBadFile(t *testing.T) {
 	}
 }
 
-func TestLoadConfigTLSCertWithoutKey(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "server.json")
+func TestLoadConfigRequiresTLSCert(t *testing.T) {
+	unsetServerConfigEnv(t)
 
-	data, err := json.Marshal(Config{
-		Address:     ":9090",
-		DBPath:      "test.db",
-		JWTSecret:   "file-secret",
-		TLSCertFile: "cert.pem",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = os.WriteFile(path, data, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("CONFIG", "")
-	t.Setenv("ADDRESS", "")
-	t.Setenv("DB_PATH", "")
-	t.Setenv("JWT_SECRET", "")
-	t.Setenv("TLS_CERT_FILE", "")
-	t.Setenv("TLS_KEY_FILE", "")
-
-	_, err = LoadConfig(path, "")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestLoadConfigTLSKeyWithoutCert(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.json")
 
@@ -192,12 +188,62 @@ func TestLoadConfigTLSKeyWithoutCert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("CONFIG", "")
-	t.Setenv("ADDRESS", "")
-	t.Setenv("DB_PATH", "")
+	_, err = LoadConfig(path, "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLoadConfigRequiresTLSKey(t *testing.T) {
+	unsetServerConfigEnv(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.json")
+
+	data, err := json.Marshal(Config{
+		Address:     ":9090",
+		DBPath:      "test.db",
+		JWTSecret:   "file-secret",
+		TLSCertFile: "cert.pem",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(path, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = LoadConfig(path, "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLoadConfigEmptyEnvOverride(t *testing.T) {
+	unsetServerConfigEnv(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.json")
+
+	data, err := json.Marshal(Config{
+		Address:     ":9090",
+		DBPath:      "test.db",
+		JWTSecret:   "file-secret",
+		TLSCertFile: "cert.pem",
+		TLSKeyFile:  "key.pem",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(path, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	t.Setenv("JWT_SECRET", "")
-	t.Setenv("TLS_CERT_FILE", "")
-	t.Setenv("TLS_KEY_FILE", "")
 
 	_, err = LoadConfig(path, "")
 	if err == nil {

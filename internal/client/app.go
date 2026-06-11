@@ -71,7 +71,7 @@ func (a *App) runRegister(args []string) error {
 		return err
 	}
 
-	token, _, err := a.api.Register(*login, password)
+	token, err := a.api.Register(*login, password)
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func (a *App) runGet(args []string) error {
 		return err
 	}
 
-	printItem(item, session.Salt, masterPassword)
+	printItem(item, masterPassword)
 	return nil
 }
 
@@ -215,7 +215,7 @@ func (a *App) runList(args []string) error {
 	}
 
 	for _, item := range items {
-		printItem(item, session.Salt, masterPassword)
+		printItem(item, masterPassword)
 	}
 
 	return nil
@@ -286,13 +286,8 @@ func (a *App) runDelete(args []string) error {
 }
 
 // printItem выводит секрет в консоль
-func printItem(item dto.ItemResponse, sessionSalt string, password string) {
-	salt := item.Salt
-	if strings.TrimSpace(salt) == "" {
-		salt = sessionSalt
-	}
-
-	plain, err := DecryptPayload(password, salt, item.Ciphertext, item.Nonce)
+func printItem(item dto.ItemResponse, password string) {
+	plain, err := DecryptPayload(password, item.Salt, item.Ciphertext, item.Nonce)
 	if err != nil {
 		plain = "<decrypt error: " + err.Error() + ">"
 	}

@@ -18,14 +18,7 @@ type Config struct {
 
 // LoadConfig загружает конфиг клиента
 func LoadConfig(shortPath string, longPath string) (Config, error) {
-	path := os.Getenv("CONFIG")
-	if path == "" {
-		if strings.TrimSpace(shortPath) != "" {
-			path = shortPath
-		} else {
-			path = longPath
-		}
-	}
+	path := pickConfigPath(shortPath, longPath)
 
 	home, _ := os.UserHomeDir()
 	defaultSession := filepath.Join(home, ".gophkeeper_session.json")
@@ -52,16 +45,16 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 		out.InsecureSkipVerify = fileCfg.InsecureSkipVerify
 	}
 
-	if v := os.Getenv("SERVER_URL"); v != "" {
+	if v, ok := os.LookupEnv("SERVER_URL"); ok {
 		out.ServerURL = v
 	}
 
-	if v := os.Getenv("SESSION_FILE"); v != "" {
+	if v, ok := os.LookupEnv("SESSION_FILE"); ok {
 		out.SessionFile = v
 	}
 
-	if v := os.Getenv("INSECURE_SKIP_VERIFY"); v == "true" || v == "1" {
-		out.InsecureSkipVerify = true
+	if v, ok := os.LookupEnv("INSECURE_SKIP_VERIFY"); ok {
+		out.InsecureSkipVerify = v == "true" || v == "1"
 	}
 
 	if runtime.GOOS == "windows" && strings.HasPrefix(out.SessionFile, "~") {
@@ -69,4 +62,17 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 	}
 
 	return out, nil
+}
+
+// pickConfigPath выбирает путь к конфигу клиента
+func pickConfigPath(shortPath string, longPath string) string {
+	if v, ok := os.LookupEnv("CONFIG"); ok {
+		return v
+	}
+
+	if strings.TrimSpace(shortPath) != "" {
+		return shortPath
+	}
+
+	return longPath
 }

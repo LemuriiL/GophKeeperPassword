@@ -6,10 +6,11 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
-	"strings"
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
 	"github.com/LemuriiL/GophKeeperPassword/internal/secure"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // AuthService отвечает за регистрацию и логин
@@ -43,6 +44,7 @@ func (s *AuthService) Register(ctx context.Context, login string, password strin
 		if isUniqueLoginErr(err) {
 			return model.User{}, ErrLoginExists
 		}
+
 		return model.User{}, err
 	}
 
@@ -84,11 +86,14 @@ func (s *AuthService) IsUniqueLogin(ctx context.Context, login string) (bool, er
 	return false, err
 }
 
+// isUniqueLoginErr проверяет ошибку уникальности логина
 func isUniqueLoginErr(err error) bool {
-	if err == nil {
-		return false
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		return sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE ||
+			sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY ||
+			sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT
 	}
 
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "unique") || strings.Contains(msg, "constraint failed")
+	return false
 }

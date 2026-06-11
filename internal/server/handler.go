@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -13,15 +14,32 @@ import (
 
 var ErrLoginExists = errors.New("login already exists")
 
+type authService interface {
+	Register(ctx context.Context, login string, password string) (model.User, error)
+	Login(ctx context.Context, login string, password string) (model.User, error)
+}
+
+type itemService interface {
+	Create(ctx context.Context, userID int64, item model.Item) (model.Item, error)
+	Update(ctx context.Context, userID int64, item model.Item) (model.Item, error)
+	Get(ctx context.Context, userID int64, id string) (model.Item, error)
+	List(ctx context.Context, userID int64) ([]model.Item, error)
+	Delete(ctx context.Context, userID int64, id string) error
+}
+
+type tokenIssuer interface {
+	Issue(userID int64, login string) (string, error)
+}
+
 // Handler хранит HTTP хендлеры сервера
 type Handler struct {
-	auth   *AuthService
-	items  *ItemService
-	tokens *TokenManager
+	auth   authService
+	items  itemService
+	tokens tokenIssuer
 }
 
 // NewHandler создает набор хендлеров
-func NewHandler(auth *AuthService, items *ItemService, tokens *TokenManager) *Handler {
+func NewHandler(auth authService, items itemService, tokens tokenIssuer) *Handler {
 	return &Handler{
 		auth:   auth,
 		items:  items,
@@ -68,7 +86,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(dto.LoginResponse{Token: token})
 }
 
-// Login логинит пользователя
+// Login авторизует пользователя
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req dto.LoginRequest
 
@@ -85,7 +103,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.auth.Login(r.Context(), login, req.Password)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		http.Error(w, "invalid login or password", http.StatusUnauthorized)
 		return
 	}
 
@@ -114,32 +132,21 @@ func (h *Handler) UpsertItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := req.ID
-	if r.Method == http.MethodPut {
-		id = strings.TrimPrefix(r.URL.Path, "/api/items/")
-		if strings.TrimSpace(id) == "" {
-			http.Error(w, "empty id", http.StatusBadRequest)
-			return
-		}
-	}
-
-	item, err := h.items.Save(r.Context(), userIDFromContext(r.Context()), model.Item{
-		ID:         id,
-		Type:       req.Type,
-		Title:      req.Title,
-		Meta:       req.Meta,
-		Ciphertext: req.Ciphertext,
-		Nonce:      req.Nonce,
-		Salt:       req.Salt,
-	})
-	if err != nil {
-		slog.Error("upsert item", "error", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	if strings.TrimSpace(req.Ciphertext) == "" || strings.TrimSpace(req.Nonce) == "" || strings.TrimSpace(req.Salt) == "" {
+		http.Error(w, "empty encrypted payload", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(toItemResponse(item))
+	userID := userIDFromContext(r.Context())
+
+	switch r.Method {
+	case http.MethodPost:
+		h.createItem(w, r, userID, req)
+	case http.MethodPut:
+		h.updateItem(w, r, userID, req)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
 }
 
 // GetItem возвращает один секрет
@@ -206,6 +213,61 @@ func (h *Handler) DeleteItem(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// createItem создает секрет
+func (h *Handler) createItem(w http.ResponseWriter, r *http.Request, userID int64, req dto.UpsertItemRequest) {
+	item, err := h.items.Create(r.Context(), userID, model.Item{
+		ID:         req.ID,
+		Type:       req.Type,
+		Title:      req.Title,
+		Meta:       req.Meta,
+		Ciphertext: req.Ciphertext,
+		Nonce:      req.Nonce,
+		Salt:       req.Salt,
+	})
+	if err != nil {
+		slog.Error("create item", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(toItemResponse(item))
+}
+
+// updateItem обновляет секрет
+func (h *Handler) updateItem(w http.ResponseWriter, r *http.Request, userID int64, req dto.UpsertItemRequest) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/items/")
+	if strings.TrimSpace(id) == "" {
+		http.Error(w, "empty id", http.StatusBadRequest)
+		return
+	}
+
+	item, err := h.items.Update(r.Context(), userID, model.Item{
+		ID:         id,
+		Type:       req.Type,
+		Title:      req.Title,
+		Meta:       req.Meta,
+		Ciphertext: req.Ciphertext,
+		Nonce:      req.Nonce,
+		Salt:       req.Salt,
+	})
+	if err != nil {
+		if IsNotFound(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		slog.Error("update item", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(toItemResponse(item))
+}
+
+// toItemResponse преобразует модель секрета в ответ
 func toItemResponse(item model.Item) dto.ItemResponse {
 	return dto.ItemResponse{
 		ID:         item.ID,

@@ -11,10 +11,12 @@ import (
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
 )
 
+// SQLite хранит подключение к SQLite
 type SQLite struct {
 	db *sql.DB
 }
 
+// NewSQLite создает SQLite хранилище
 func NewSQLite(path string) (*SQLite, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -31,10 +33,12 @@ func NewSQLite(path string) (*SQLite, error) {
 	return s, nil
 }
 
+// Close закрывает подключение к базе данных
 func (s *SQLite) Close() error {
 	return s.db.Close()
 }
 
+// migrate создает таблицы
 func (s *SQLite) migrate(ctx context.Context) error {
 	query := `
 CREATE TABLE IF NOT EXISTS users (
@@ -63,6 +67,7 @@ CREATE TABLE IF NOT EXISTS items (
 	return err
 }
 
+// CreateUser создает пользователя
 func (s *SQLite) CreateUser(ctx context.Context, user model.User) (int64, error) {
 	res, err := s.db.ExecContext(
 		ctx,
@@ -79,6 +84,7 @@ func (s *SQLite) CreateUser(ctx context.Context, user model.User) (int64, error)
 	return res.LastInsertId()
 }
 
+// GetUserByLogin получает пользователя по логину
 func (s *SQLite) GetUserByLogin(ctx context.Context, login string) (model.User, error) {
 	var user model.User
 
@@ -99,19 +105,12 @@ func (s *SQLite) GetUserByLogin(ctx context.Context, login string) (model.User, 
 	return user, err
 }
 
-func (s *SQLite) UpsertItem(ctx context.Context, item model.Item) error {
+// CreateItem создает секрет
+func (s *SQLite) CreateItem(ctx context.Context, item model.Item) error {
 	_, err := s.db.ExecContext(
 		ctx,
 		`INSERT INTO items(id, user_id, type, title, meta, ciphertext, nonce, salt, updated_at)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
-	type = excluded.type,
-	title = excluded.title,
-	meta = excluded.meta,
-	ciphertext = excluded.ciphertext,
-	nonce = excluded.nonce,
-	salt = excluded.salt,
-	updated_at = excluded.updated_at`,
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID,
 		item.UserID,
 		item.Type,
@@ -126,6 +125,40 @@ ON CONFLICT(id) DO UPDATE SET
 	return err
 }
 
+// UpdateItem обновляет секрет текущего пользователя
+func (s *SQLite) UpdateItem(ctx context.Context, item model.Item) error {
+	res, err := s.db.ExecContext(
+		ctx,
+		`UPDATE items
+SET type = ?, title = ?, meta = ?, ciphertext = ?, nonce = ?, salt = ?, updated_at = ?
+WHERE id = ? AND user_id = ?`,
+		item.Type,
+		item.Title,
+		item.Meta,
+		item.Ciphertext,
+		item.Nonce,
+		item.Salt,
+		item.UpdatedAt,
+		item.ID,
+		item.UserID,
+	)
+	if err != nil {
+		return err
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+// GetItem получает секрет текущего пользователя
 func (s *SQLite) GetItem(ctx context.Context, userID int64, id string) (model.Item, error) {
 	var item model.Item
 
@@ -151,6 +184,7 @@ func (s *SQLite) GetItem(ctx context.Context, userID int64, id string) (model.It
 	return item, err
 }
 
+// ListItems получает список секретов текущего пользователя
 func (s *SQLite) ListItems(ctx context.Context, userID int64) ([]model.Item, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
@@ -187,6 +221,7 @@ func (s *SQLite) ListItems(ctx context.Context, userID int64) ([]model.Item, err
 	return items, rows.Err()
 }
 
+// DeleteItem удаляет секрет текущего пользователя
 func (s *SQLite) DeleteItem(ctx context.Context, userID int64, id string) error {
 	res, err := s.db.ExecContext(
 		ctx,
@@ -210,10 +245,12 @@ func (s *SQLite) DeleteItem(ctx context.Context, userID int64, id string) error 
 	return nil
 }
 
+// Now возвращает текущее время
 func Now() time.Time {
 	return time.Now().UTC()
 }
 
+// IsNotFound проверяет отсутствие записи
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }

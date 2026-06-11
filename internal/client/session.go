@@ -9,7 +9,6 @@ import (
 type Session struct {
 	Login string `json:"login"`
 	Token string `json:"token"`
-	Salt  string `json:"salt"`
 }
 
 // SaveSession сохраняет сессию на диск

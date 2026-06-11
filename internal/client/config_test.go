@@ -8,7 +8,40 @@ import (
 	"testing"
 )
 
+func unsetClientConfigEnv(t *testing.T) {
+	t.Helper()
+
+	keys := []string{
+		"CONFIG",
+		"SERVER_URL",
+		"SESSION_FILE",
+		"INSECURE_SKIP_VERIFY",
+	}
+
+	oldValues := make(map[string]string, len(keys))
+	oldExists := make(map[string]bool, len(keys))
+
+	for _, key := range keys {
+		value, ok := os.LookupEnv(key)
+		oldValues[key] = value
+		oldExists[key] = ok
+		_ = os.Unsetenv(key)
+	}
+
+	t.Cleanup(func() {
+		for _, key := range keys {
+			if oldExists[key] {
+				_ = os.Setenv(key, oldValues[key])
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		}
+	})
+}
+
 func TestLoadConfigFromFile(t *testing.T) {
+	unsetClientConfigEnv(t)
+
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "client.json")
 	sessionPath := filepath.Join(dir, "session.json")
@@ -46,6 +79,8 @@ func TestLoadConfigFromFile(t *testing.T) {
 }
 
 func TestLoadConfigEnvOverride(t *testing.T) {
+	unsetClientConfigEnv(t)
+
 	t.Setenv("SERVER_URL", "http://env.example.com")
 	t.Setenv("SESSION_FILE", "env-session.json")
 	t.Setenv("INSECURE_SKIP_VERIFY", "true")
@@ -69,10 +104,7 @@ func TestLoadConfigEnvOverride(t *testing.T) {
 }
 
 func TestLoadConfigDefaults(t *testing.T) {
-	t.Setenv("SERVER_URL", "")
-	t.Setenv("SESSION_FILE", "")
-	t.Setenv("CONFIG", "")
-	t.Setenv("INSECURE_SKIP_VERIFY", "")
+	unsetClientConfigEnv(t)
 
 	cfg, err := LoadConfig("", "")
 	if err != nil {
@@ -89,5 +121,20 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 	if cfg.InsecureSkipVerify {
 		t.Fatal("unexpected insecure skip verify")
+	}
+}
+
+func TestLoadConfigEmptyEnvOverride(t *testing.T) {
+	unsetClientConfigEnv(t)
+
+	t.Setenv("SERVER_URL", "")
+
+	cfg, err := LoadConfig("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.ServerURL != "" {
+		t.Fatalf("unexpected server url: %s", cfg.ServerURL)
 	}
 }

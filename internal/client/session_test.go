@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
+// TestSaveLoadSession проверяет сохранение и чтение сессии
 func TestSaveLoadSession(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.json")
 
 	err := SaveSession(path, Session{
 		Login: "user1",
 		Token: "token1",
-		Salt:  "salt1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -29,14 +29,22 @@ func TestSaveLoadSession(t *testing.T) {
 	if session.Token != "token1" {
 		t.Fatalf("unexpected token: %s", session.Token)
 	}
+}
 
-	if session.Salt != "salt1" {
-		t.Fatalf("unexpected salt: %s", session.Salt)
+// TestLoadSessionMissingFile проверяет ошибку при отсутствии файла сессии
+func TestLoadSessionMissingFile(t *testing.T) {
+	_, err := LoadSession(filepath.Join(t.TempDir(), "missing.json"))
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 
-func TestLoadSessionMissingFile(t *testing.T) {
-	_, err := LoadSession(filepath.Join(t.TempDir(), "missing.json"))
+// TestSaveSessionBadPath проверяет ошибку записи сессии
+func TestSaveSessionBadPath(t *testing.T) {
+	err := SaveSession(filepath.Join(t.TempDir(), "missing", "session.json"), Session{
+		Login: "user1",
+		Token: "token1",
+	})
 	if err == nil {
 		t.Fatal("expected error")
 	}

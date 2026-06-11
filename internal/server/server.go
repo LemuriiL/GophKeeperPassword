@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -69,16 +68,9 @@ func (a *App) RoutesForTests() http.Handler {
 	return a.routes()
 }
 
-// Run запускает сервер
+// Run запускает HTTPS сервер
 func (a *App) Run() error {
-	var err error
-
-	if strings.TrimSpace(a.cfg.TLSCertFile) != "" && strings.TrimSpace(a.cfg.TLSKeyFile) != "" {
-		err = a.http.ListenAndServeTLS(a.cfg.TLSCertFile, a.cfg.TLSKeyFile)
-	} else {
-		err = a.http.ListenAndServe()
-	}
-
+	err := a.http.ListenAndServeTLS(a.cfg.TLSCertFile, a.cfg.TLSKeyFile)
 	if err == http.ErrServerClosed {
 		return nil
 	}

@@ -53,23 +53,23 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 		}
 	}
 
-	if v := os.Getenv("ADDRESS"); v != "" {
+	if v, ok := os.LookupEnv("ADDRESS"); ok {
 		out.Address = v
 	}
 
-	if v := os.Getenv("DB_PATH"); v != "" {
+	if v, ok := os.LookupEnv("DB_PATH"); ok {
 		out.DBPath = v
 	}
 
-	if v := os.Getenv("JWT_SECRET"); v != "" {
+	if v, ok := os.LookupEnv("JWT_SECRET"); ok {
 		out.JWTSecret = v
 	}
 
-	if v := os.Getenv("TLS_CERT_FILE"); v != "" {
+	if v, ok := os.LookupEnv("TLS_CERT_FILE"); ok {
 		out.TLSCertFile = v
 	}
 
-	if v := os.Getenv("TLS_KEY_FILE"); v != "" {
+	if v, ok := os.LookupEnv("TLS_KEY_FILE"); ok {
 		out.TLSKeyFile = v
 	}
 
@@ -77,12 +77,12 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 		return Config{}, errors.New("JWT_SECRET is required")
 	}
 
-	if strings.TrimSpace(out.TLSCertFile) == "" && strings.TrimSpace(out.TLSKeyFile) != "" {
-		return Config{}, errors.New("TLS_CERT_FILE is required when TLS_KEY_FILE is set")
+	if strings.TrimSpace(out.TLSCertFile) == "" {
+		return Config{}, errors.New("TLS_CERT_FILE is required")
 	}
 
-	if strings.TrimSpace(out.TLSCertFile) != "" && strings.TrimSpace(out.TLSKeyFile) == "" {
-		return Config{}, errors.New("TLS_KEY_FILE is required when TLS_CERT_FILE is set")
+	if strings.TrimSpace(out.TLSKeyFile) == "" {
+		return Config{}, errors.New("TLS_KEY_FILE is required")
 	}
 
 	return out, nil
@@ -90,7 +90,7 @@ func LoadConfig(shortPath string, longPath string) (Config, error) {
 
 // pickString выбирает первое непустое строковое значение
 func pickString(envName string, values ...string) string {
-	if v := os.Getenv(envName); v != "" {
+	if v, ok := os.LookupEnv(envName); ok {
 		return v
 	}
 

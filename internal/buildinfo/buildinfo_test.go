@@ -2,68 +2,40 @@ package buildinfo
 
 import (
 	"bytes"
-	"io"
-	"os"
 	"strings"
 	"testing"
 )
 
-func captureOutput(t *testing.T, fn func()) string {
-	t.Helper()
+// TestPrintFilledValues проверяет вывод заполненных build info значений
+func TestPrintFilledValues(t *testing.T) {
+	var out bytes.Buffer
 
-	oldStdout := os.Stdout
+	Print(&out, "1.0.0", "2026-06-01", "abc123")
 
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
+	got := out.String()
+
+	if !strings.Contains(got, "Build version: 1.0.0") {
+		t.Fatalf("unexpected output: %s", got)
 	}
 
-	os.Stdout = w
-
-	fn()
-
-	_ = w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	_ = r.Close()
-
-	return buf.String()
-}
-
-func TestPrint(t *testing.T) {
-	out := captureOutput(t, func() {
-		Print("1.0.0", "2026-06-02", "abc123")
-	})
-
-	if !strings.Contains(out, "Build version: 1.0.0") {
-		t.Fatalf("unexpected output: %s", out)
+	if !strings.Contains(got, "Build date: 2026-06-01") {
+		t.Fatalf("unexpected output: %s", got)
 	}
 
-	if !strings.Contains(out, "Build date: 2026-06-02") {
-		t.Fatalf("unexpected output: %s", out)
-	}
-
-	if !strings.Contains(out, "Build commit: abc123") {
-		t.Fatalf("unexpected output: %s", out)
+	if !strings.Contains(got, "Build commit: abc123") {
+		t.Fatalf("unexpected output: %s", got)
 	}
 }
 
-func TestPrintFallback(t *testing.T) {
-	out := captureOutput(t, func() {
-		Print("", "", "")
-	})
+// TestPrintEmptyValues проверяет вывод значений по умолчанию
+func TestPrintEmptyValues(t *testing.T) {
+	var out bytes.Buffer
 
-	if !strings.Contains(out, "Build version: N/A") {
-		t.Fatalf("unexpected output: %s", out)
-	}
+	Print(&out, "", "", "")
 
-	if !strings.Contains(out, "Build date: N/A") {
-		t.Fatalf("unexpected output: %s", out)
-	}
+	got := out.String()
 
-	if !strings.Contains(out, "Build commit: N/A") {
-		t.Fatalf("unexpected output: %s", out)
+	if strings.Count(got, "N/A") != 3 {
+		t.Fatalf("unexpected output: %s", got)
 	}
 }

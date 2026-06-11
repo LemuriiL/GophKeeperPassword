@@ -3,340 +3,411 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/LemuriiL/GophKeeperPassword/internal/dto"
 	"github.com/LemuriiL/GophKeeperPassword/internal/model"
 )
 
-func newTestHTTP(t *testing.T) (*Handler, *TokenManager, http.Handler, func()) {
+// newTestHTTPServer создает тестовый HTTP сервер
+func newTestHTTPServer(t *testing.T) (*httptest.Server, func()) {
 	t.Helper()
 
-	store, err := NewSQLite(":memory:")
+	app, err := NewApp(Config{
+		Address:     ":0",
+		DBPath:      ":memory:",
+		JWTSecret:   "test-secret",
+		TLSCertFile: "cert.pem",
+		TLSKeyFile:  "key.pem",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	auth := NewAuthService(store)
-	items := NewItemService(store)
-	tokens := NewTokenManager("secret")
-	h := NewHandler(auth, items, tokens)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/register", h.Register)
-	mux.HandleFunc("POST /api/login", h.Login)
-	mux.Handle("POST /api/items", AuthMiddleware(tokens, http.HandlerFunc(h.UpsertItem)))
-	mux.Handle("GET /api/items", AuthMiddleware(tokens, http.HandlerFunc(h.ListItems)))
-	mux.Handle("GET /api/items/", AuthMiddleware(tokens, http.HandlerFunc(h.GetItem)))
-	mux.Handle("PUT /api/items/", AuthMiddleware(tokens, http.HandlerFunc(h.UpsertItem)))
-	mux.Handle("DELETE /api/items/", AuthMiddleware(tokens, http.HandlerFunc(h.DeleteItem)))
+	ts := httptest.NewServer(app.RoutesForTests())
 
 	cleanup := func() {
-		_ = store.Close()
+		ts.Close()
+		_ = app.Close()
 	}
 
-	return h, tokens, mux, cleanup
+	return ts, cleanup
 }
 
-func registerAndLogin(t *testing.T, router http.Handler, login string, password string) string {
+// doJSON выполняет JSON запрос
+func doJSON(t *testing.T, method string, url string, token string, body any) *http.Response {
 	t.Helper()
 
-	registerBody, _ := json.Marshal(dto.RegisterRequest{
+	var reader io.Reader
+
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		reader = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return resp
+}
+
+// readBody читает тело ответа
+func readBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	return string(data)
+}
+
+// registerUser регистрирует пользователя и возвращает токен
+func registerUser(t *testing.T, ts *httptest.Server, login string, password string) string {
+	t.Helper()
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/register", "", dto.RegisterRequest{
 		Login:    login,
 		Password: password,
 	})
 
-	regReq := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader(registerBody))
-	regRec := httptest.NewRecorder()
-	router.ServeHTTP(regRec, regReq)
-
-	if regRec.Code != http.StatusCreated {
-		t.Fatalf("unexpected register code: %d", regRec.Code)
+	if resp.StatusCode != http.StatusCreated {
+		body := readBody(t, resp)
+		t.Fatalf("unexpected register code: %d body: %s", resp.StatusCode, body)
 	}
 
-	var regResp dto.LoginResponse
-	if err := json.NewDecoder(regRec.Body).Decode(&regResp); err != nil {
+	var out dto.LoginResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
 
-	return regResp.Token
-}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-func TestRegisterAndLogin(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
-	defer cleanup()
-
-	token := registerAndLogin(t, router, "user1", "pass1")
-	if token == "" {
+	if strings.TrimSpace(out.Token) == "" {
 		t.Fatal("expected token")
 	}
 
-	loginBody, _ := json.Marshal(dto.LoginRequest{
+	return out.Token
+}
+
+// TestRegister проверяет регистрацию пользователя
+func TestRegister(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
+	defer cleanup()
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/register", "", dto.RegisterRequest{
 		Login:    "user1",
 		Password: "pass1",
 	})
+	defer resp.Body.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(loginBody))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("unexpected code: %d", resp.StatusCode)
+	}
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected login code: %d", rec.Code)
+	var out dto.LoginResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.TrimSpace(out.Token) == "" {
+		t.Fatal("expected token")
 	}
 }
 
-func TestRegisterBadJSON(t *testing.T) {
-	h, _, _, cleanup := newTestHTTP(t)
+// TestRegisterDuplicate проверяет конфликт при повторной регистрации
+func TestRegisterDuplicate(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
 	defer cleanup()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader([]byte("{bad")))
-	rec := httptest.NewRecorder()
-	h.Register(rec, req)
+	_ = registerUser(t, ts, "user1", "pass1")
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected code: %d", rec.Code)
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/register", "", dto.RegisterRequest{
+		Login:    "user1",
+		Password: "pass1",
+	})
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("unexpected code: %d", resp.StatusCode)
 	}
 }
 
-func TestRegisterEmptyLogin(t *testing.T) {
-	h, _, _, cleanup := newTestHTTP(t)
+// TestRegisterBadRequest проверяет ошибку регистрации с пустыми данными
+func TestRegisterBadRequest(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
 	defer cleanup()
 
-	body, _ := json.Marshal(dto.RegisterRequest{
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/register", "", dto.RegisterRequest{
 		Login:    "",
-		Password: "pass1",
+		Password: "",
 	})
+	defer resp.Body.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.Register(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected code: %d", rec.Code)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unexpected code: %d", resp.StatusCode)
 	}
 }
 
-func TestRegisterConflict(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
+// TestLogin проверяет логин пользователя
+func TestLogin(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
 	defer cleanup()
 
-	_ = registerAndLogin(t, router, "user1", "pass1")
+	_ = registerUser(t, ts, "user1", "pass1")
 
-	body, _ := json.Marshal(dto.RegisterRequest{
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/login", "", dto.LoginRequest{
 		Login:    "user1",
 		Password: "pass1",
 	})
+	defer resp.Body.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected code: %d", resp.StatusCode)
+	}
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("unexpected code: %d", rec.Code)
+	var out dto.LoginResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.TrimSpace(out.Token) == "" {
+		t.Fatal("expected token")
 	}
 }
 
-func TestLoginBadPassword(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
+// TestLoginInvalidCredentials проверяет общий ответ при неверном логине
+func TestLoginInvalidCredentials(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
 	defer cleanup()
 
-	_ = registerAndLogin(t, router, "user1", "pass1")
-
-	body, _ := json.Marshal(dto.LoginRequest{
-		Login:    "user1",
-		Password: "wrong",
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/login", "", dto.LoginRequest{
+		Login:    "missing",
+		Password: "pass1",
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
+	if resp.StatusCode != http.StatusUnauthorized {
+		body := readBody(t, resp)
+		t.Fatalf("unexpected code: %d body: %s", resp.StatusCode, body)
+	}
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("unexpected code: %d", rec.Code)
+	body := readBody(t, resp)
+
+	if strings.Contains(strings.ToLower(body), "sql") {
+		t.Fatalf("response leaks internal error: %s", body)
+	}
+
+	if !strings.Contains(body, "invalid login or password") {
+		t.Fatalf("unexpected body: %s", body)
 	}
 }
 
+// TestItemCRUD проверяет создание, чтение, обновление и удаление секрета
 func TestItemCRUD(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
+	ts, cleanup := newTestHTTPServer(t)
 	defer cleanup()
 
-	token := registerAndLogin(t, router, "user1", "pass1")
+	token := registerUser(t, ts, "user1", "pass1")
 
-	createBody, _ := json.Marshal(dto.UpsertItemRequest{
+	createResp := doJSON(t, http.MethodPost, ts.URL+"/api/items", token, dto.UpsertItemRequest{
 		Type:       model.TypeText,
 		Title:      "note1",
-		Meta:       "telegram",
-		Ciphertext: "cipher-1",
-		Nonce:      "nonce-1",
-		Salt:       "salt-1",
+		Meta:       "test",
+		Ciphertext: "ciphertext1",
+		Nonce:      "nonce1",
+		Salt:       "salt1",
 	})
+	defer createResp.Body.Close()
 
-	createReq := httptest.NewRequest(http.MethodPost, "/api/items", bytes.NewReader(createBody))
-	createReq.Header.Set("Authorization", "Bearer "+token)
-	createRec := httptest.NewRecorder()
-	router.ServeHTTP(createRec, createReq)
-
-	if createRec.Code != http.StatusOK {
-		t.Fatalf("unexpected create code: %d", createRec.Code)
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("unexpected create code: %d", createResp.StatusCode)
 	}
 
 	var created dto.ItemResponse
-	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
 
-	if created.ID == "" {
+	if strings.TrimSpace(created.ID) == "" {
 		t.Fatal("expected item id")
 	}
 
-	listReq := httptest.NewRequest(http.MethodGet, "/api/items", nil)
-	listReq.Header.Set("Authorization", "Bearer "+token)
-	listRec := httptest.NewRecorder()
-	router.ServeHTTP(listRec, listReq)
-
-	if listRec.Code != http.StatusOK {
-		t.Fatalf("unexpected list code: %d", listRec.Code)
+	if created.Title != "note1" {
+		t.Fatalf("unexpected title: %s", created.Title)
 	}
 
-	var items []dto.ItemResponse
-	if err := json.NewDecoder(listRec.Body).Decode(&items); err != nil {
+	listResp := doJSON(t, http.MethodGet, ts.URL+"/api/items", token, nil)
+	defer listResp.Body.Close()
+
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected list code: %d", listResp.StatusCode)
+	}
+
+	var list []dto.ItemResponse
+	if err := json.NewDecoder(listResp.Body).Decode(&list); err != nil {
 		t.Fatal(err)
 	}
 
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
+	if len(list) != 1 {
+		t.Fatalf("unexpected list len: %d", len(list))
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/api/items/"+created.ID, nil)
-	getReq.Header.Set("Authorization", "Bearer "+token)
-	getRec := httptest.NewRecorder()
-	router.ServeHTTP(getRec, getReq)
+	getResp := doJSON(t, http.MethodGet, ts.URL+"/api/items/"+created.ID, token, nil)
+	defer getResp.Body.Close()
 
-	if getRec.Code != http.StatusOK {
-		t.Fatalf("unexpected get code: %d", getRec.Code)
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected get code: %d", getResp.StatusCode)
 	}
 
 	var got dto.ItemResponse
-	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
+	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
 
-	if got.Title != "note1" {
-		t.Fatalf("unexpected title: %s", got.Title)
+	if got.ID != created.ID {
+		t.Fatalf("unexpected id: %s", got.ID)
 	}
 
-	updateBody, _ := json.Marshal(dto.UpsertItemRequest{
+	updateResp := doJSON(t, http.MethodPut, ts.URL+"/api/items/"+created.ID, token, dto.UpsertItemRequest{
 		Type:       model.TypeText,
-		Title:      "note-updated",
-		Meta:       "telegram-updated",
-		Ciphertext: "cipher-2",
-		Nonce:      "nonce-2",
-		Salt:       "salt-2",
+		Title:      "note2",
+		Meta:       "updated",
+		Ciphertext: "ciphertext2",
+		Nonce:      "nonce2",
+		Salt:       "salt2",
 	})
+	defer updateResp.Body.Close()
 
-	updateReq := httptest.NewRequest(http.MethodPut, "/api/items/"+created.ID, bytes.NewReader(updateBody))
-	updateReq.Header.Set("Authorization", "Bearer "+token)
-	updateRec := httptest.NewRecorder()
-	router.ServeHTTP(updateRec, updateReq)
-
-	if updateRec.Code != http.StatusOK {
-		t.Fatalf("unexpected update code: %d", updateRec.Code)
+	if updateResp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected update code: %d", updateResp.StatusCode)
 	}
 
-	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/items/"+created.ID, nil)
-	deleteReq.Header.Set("Authorization", "Bearer "+token)
-	deleteRec := httptest.NewRecorder()
-	router.ServeHTTP(deleteRec, deleteReq)
-
-	if deleteRec.Code != http.StatusNoContent {
-		t.Fatalf("unexpected delete code: %d", deleteRec.Code)
+	var updated dto.ItemResponse
+	if err := json.NewDecoder(updateResp.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
 	}
-}
 
-func TestItemUnauthorized(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
-	defer cleanup()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/items", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("unexpected code: %d", rec.Code)
+	if updated.Title != "note2" {
+		t.Fatalf("unexpected updated title: %s", updated.Title)
 	}
-}
 
-func TestGetItemNotFound(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
-	defer cleanup()
+	if updated.Ciphertext != "ciphertext2" {
+		t.Fatalf("unexpected updated ciphertext: %s", updated.Ciphertext)
+	}
 
-	token := registerAndLogin(t, router, "user1", "pass1")
+	deleteResp := doJSON(t, http.MethodDelete, ts.URL+"/api/items/"+created.ID, token, nil)
+	defer deleteResp.Body.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/items/missing", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
+	if deleteResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("unexpected delete code: %d", deleteResp.StatusCode)
+	}
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("unexpected code: %d", rec.Code)
+	getDeletedResp := doJSON(t, http.MethodGet, ts.URL+"/api/items/"+created.ID, token, nil)
+	defer getDeletedResp.Body.Close()
+
+	if getDeletedResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unexpected get deleted code: %d", getDeletedResp.StatusCode)
 	}
 }
 
-func TestDeleteItemNotFound(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
+// TestCreateItemBadRequest проверяет создание секрета с некорректными данными
+func TestCreateItemBadRequest(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
 	defer cleanup()
 
-	token := registerAndLogin(t, router, "user1", "pass1")
+	token := registerUser(t, ts, "user1", "pass1")
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/items/missing", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("unexpected code: %d", rec.Code)
-	}
-}
-
-func TestUpsertItemBadBody(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
-	defer cleanup()
-
-	token := registerAndLogin(t, router, "user1", "pass1")
-
-	req := httptest.NewRequest(http.MethodPost, "/api/items", bytes.NewReader([]byte("{bad")))
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected code: %d", rec.Code)
-	}
-}
-
-func TestUpsertItemEmptyType(t *testing.T) {
-	_, _, router, cleanup := newTestHTTP(t)
-	defer cleanup()
-
-	token := registerAndLogin(t, router, "user1", "pass1")
-
-	body, _ := json.Marshal(dto.UpsertItemRequest{
-		Type:       "",
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/items", token, dto.UpsertItemRequest{
+		Type:       model.TypeText,
 		Title:      "note1",
-		Meta:       "meta",
-		Ciphertext: "cipher",
-		Nonce:      "nonce",
-		Salt:       "salt",
+		Meta:       "test",
+		Ciphertext: "",
+		Nonce:      "",
+		Salt:       "",
 	})
+	defer resp.Body.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/items", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unexpected code: %d", resp.StatusCode)
+	}
+}
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected code: %d", rec.Code)
+// TestUpdateMissingItem проверяет обновление отсутствующего секрета
+func TestUpdateMissingItem(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
+	defer cleanup()
+
+	token := registerUser(t, ts, "user1", "pass1")
+
+	resp := doJSON(t, http.MethodPut, ts.URL+"/api/items/missing-id", token, dto.UpsertItemRequest{
+		Type:       model.TypeText,
+		Title:      "note1",
+		Meta:       "test",
+		Ciphertext: "ciphertext1",
+		Nonce:      "nonce1",
+		Salt:       "salt1",
+	})
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unexpected code: %d", resp.StatusCode)
+	}
+}
+
+// TestDeleteMissingItem проверяет удаление отсутствующего секрета
+func TestDeleteMissingItem(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
+	defer cleanup()
+
+	token := registerUser(t, ts, "user1", "pass1")
+
+	resp := doJSON(t, http.MethodDelete, ts.URL+"/api/items/missing-id", token, nil)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unexpected code: %d", resp.StatusCode)
+	}
+}
+
+// TestUnauthorizedItems проверяет запрет доступа без токена
+func TestUnauthorizedItems(t *testing.T) {
+	ts, cleanup := newTestHTTPServer(t)
+	defer cleanup()
+
+	resp := doJSON(t, http.MethodGet, ts.URL+"/api/items", "", nil)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unexpected code: %d", resp.StatusCode)
 	}
 }
